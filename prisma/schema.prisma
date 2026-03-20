@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  PRODUCER
+  EDITOR
+  VIEWER
+}
+
+enum ProjectStatus {
+  DRAFT
+  EDITING
+  REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  name      String
+  role      Role      @default(VIEWER)
+  password  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  projects  Project[]
+  assets    Asset[]   @relation("AssetCreator")
+  comments  Comment[]
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  name        String
+  description String?
+  status      ProjectStatus @default(DRAFT)
+  ownerId     String
+  owner       User          @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  assets      Asset[]
+}
+
+model Asset {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  type        String    // video, image, audio, document
+  mimeType    String
+  size        Float
+  creatorId   String
+  creator     User      @relation("AssetCreator", fields: [creatorId], references: [id])
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id])
+  status      String    @default("DRAFT") // DRAFT, REVIEW, APPROVED
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  versions    AssetVersion[]
+  comments    Comment[]
+  tags        Tag[]     @relation("AssetToTag")
+  metadata    Json?     // Flexible metadata (resolution, duration, target platform etc.)
+}
+
+model AssetVersion {
+  id           String   @id @default(uuid())
+  assetId      String
+  asset        Asset    @relation(fields: [assetId], references: [id])
+  versionNum   Int
+  nextcloudUri String   // Path in Nextcloud
+  proxyUri     String?  // Path to proxy file in Nextcloud or local
+  createdAt    DateTime @default(now())
+  
+  comments     Comment[]
+}
+
+model Comment {
+  id             String        @id @default(uuid())
+  content        String
+  timestampFrame Float?        // For video frame-level comments
+  authorId       String
+  author         User          @relation(fields: [authorId], references: [id])
+  assetId        String?
+  asset          Asset?        @relation(fields: [assetId], references: [id])
+  assetVersionId String?
+  assetVersion   AssetVersion? @relation(fields: [assetVersionId], references: [id])
+  createdAt      DateTime      @default(now())
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  assets    Asset[]  @relation("AssetToTag")
+}
