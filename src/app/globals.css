@@ -4,7 +4,8 @@
   --panel-hover: #1e1e1e;
   --text-main: #ededed;
   --text-muted: #a1a1aa;
-  --accent-color: #8b5cf6; /* Studio Purple */
+  --accent-color: #8b5cf6;
+  /* Studio Purple */
   --accent-hover: #7c3aed;
   --accent-light: rgba(139, 92, 246, 0.15);
   --border-color: #27272a;
@@ -136,4 +137,18 @@ a {
 
 .card:hover {
   border-color: rgba(139, 92, 246, 0.4);
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.5;
+    transform: scale(0.95);
+  }
 }
