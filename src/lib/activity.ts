@@ -21,7 +21,8 @@ export type EntityType =
     | 'COMMENT'
     | 'USER'
     | 'SAVED_SEARCH'
-    | 'FAVORITE';
+    | 'FAVORITE'
+    | 'SYSTEM_SETTING';
 
 export interface ActivityDetails {
     [key: string]: string | number | boolean | null | undefined | string[];

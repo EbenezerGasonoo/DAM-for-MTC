@@ -372,3 +372,9 @@ model PermissionTemplate {
   // Track which entities this template has been applied to
   appliedCount Int @default(0)
 }
+
+model SystemSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

@@ -34,13 +34,27 @@ const rbacMatrix = [
 
 export default function SettingsPage() {
     const { colors, updateColor, saveColors, resetToDefaults, hasUnsavedChanges } = useBranding();
-    const [activeTab, setActiveTab] = useState<'brand' | 'rbac' | 'watermark' | 'audit'>('brand');
+    const [activeTab, setActiveTab] = useState<'brand' | 'rbac' | 'watermark' | 'audit' | 'nextcloud'>('brand');
 
     // Audit log state
     const [activities, setActivities] = useState<ActivityItem[]>([]);
     const [loadingAudit, setLoadingAudit] = useState(false);
     const [auditSearch, setAuditSearch] = useState('');
     const [actionFilter, setActionFilter] = useState('ALL');
+
+    // Nextcloud Server State
+    const [ncUrl, setNcUrl] = useState('https://nextcloud.mtc-network.space/');
+    const [ncUsername, setNcUsername] = useState('');
+    const [ncPassword, setNcPassword] = useState('');
+    const [ncRootFolder, setNcRootFolder] = useState('/mtc-dam-uploads');
+    const [ncStatus, setNcStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CHECKING'>('CHECKING');
+    const [ncQuota, setNcQuota] = useState<{ used: number; available: number } | null>(null);
+    const [ncWebdavUrl, setNcWebdavUrl] = useState('');
+    const [ncHasPassword, setNcHasPassword] = useState(false);
+    const [ncTesting, setNcTesting] = useState(false);
+    const [ncSaving, setNcSaving] = useState(false);
+    const [ncFeedback, setNcFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
 
     // Watermark Profile state
     const [watermarkName, setWatermarkName] = useState('MTC Internal Confidential Burn-in');
@@ -74,9 +88,94 @@ export default function SettingsPage() {
         }
     };
 
+    const fetchNextcloudSettings = async () => {
+        try {
+            setNcStatus('CHECKING');
+            const res = await fetch('/api/settings/nextcloud');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.url) setNcUrl(data.url);
+                if (data.username) setNcUsername(data.username);
+                if (data.rootFolder) setNcRootFolder(data.rootFolder);
+                if (data.webdavUrl) setNcWebdavUrl(data.webdavUrl);
+                setNcHasPassword(Boolean(data.hasPassword));
+                setNcStatus(data.connectionStatus || 'DISCONNECTED');
+                setNcQuota(data.quota || null);
+            } else {
+                setNcStatus('DISCONNECTED');
+            }
+        } catch {
+            setNcStatus('DISCONNECTED');
+        }
+    };
+
+    const handleTestNextcloud = async () => {
+        setNcTesting(true);
+        setNcFeedback(null);
+        try {
+            const res = await fetch('/api/settings/nextcloud/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: ncUrl,
+                    username: ncUsername,
+                    password: ncPassword || (ncHasPassword ? '••••••••' : ''),
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setNcStatus('CONNECTED');
+                if (data.quota) setNcQuota(data.quota);
+                setNcFeedback({ type: 'success', message: 'Connection successful! WebDAV verified and ready.' });
+            } else {
+                setNcStatus('DISCONNECTED');
+                setNcFeedback({ type: 'error', message: data.error || 'Connection failed. Please check credentials.' });
+            }
+        } catch (err: any) {
+            setNcStatus('DISCONNECTED');
+            setNcFeedback({ type: 'error', message: err?.message || 'Network error while testing connection.' });
+        } finally {
+            setNcTesting(false);
+        }
+    };
+
+    const handleSaveNextcloud = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setNcSaving(true);
+        setNcFeedback(null);
+        try {
+            const res = await fetch('/api/settings/nextcloud', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    url: ncUrl,
+                    username: ncUsername,
+                    password: ncPassword,
+                    rootFolder: ncRootFolder,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setNcStatus(data.connectionStatus);
+                if (data.quota) setNcQuota(data.quota);
+                if (ncPassword) setNcHasPassword(true);
+                setNcPassword('');
+                setNcFeedback({ type: 'success', message: data.message || 'Nextcloud settings saved successfully!' });
+            } else {
+                setNcFeedback({ type: 'error', message: data.error || 'Failed to save Nextcloud settings.' });
+            }
+        } catch (err: any) {
+            setNcFeedback({ type: 'error', message: err?.message || 'Failed to save settings.' });
+        } finally {
+            setNcSaving(false);
+        }
+    };
+
     useEffect(() => {
         if (activeTab === 'audit') {
             fetchAuditLogs();
+        } else if (activeTab === 'nextcloud') {
+            fetchNextcloudSettings();
         }
     }, [activeTab]);
 
@@ -104,6 +203,7 @@ export default function SettingsPage() {
                 }}>
                     {[
                         { key: 'brand', label: 'Brand & Visual Identity', icon: '🎨' },
+                        { key: 'nextcloud', label: 'Cloud Storage & Nextcloud', icon: '☁️' },
                         { key: 'rbac', label: 'Role-Based Access Control (RBAC)', icon: '🛡️' },
                         { key: 'watermark', label: 'DRM & Watermark Profiles', icon: '🔒' },
                         { key: 'audit', label: 'Enterprise System Audit Log', icon: '📋' },
@@ -570,6 +670,329 @@ export default function SettingsPage() {
                             </div>
                         )}
                     </section>
+                )}
+
+                {/* TAB 5: NEXTCLOUD STORAGE INTEGRATION & LINKING GUIDE */}
+                {activeTab === 'nextcloud' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        {/* Live Status & Quota Banner */}
+                        <section className="card" style={{
+                            background: 'linear-gradient(135deg, rgba(29, 39, 41, 0.95), rgba(20, 28, 30, 0.95))',
+                            border: ncStatus === 'CONNECTED' ? '1px solid rgba(56, 102, 66, 0.5)' : '1px solid var(--border-color)',
+                            boxShadow: ncStatus === 'CONNECTED' ? '0 8px 32px rgba(56, 102, 66, 0.15)' : 'none',
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                                    <div style={{
+                                        width: '44px',
+                                        height: '44px',
+                                        borderRadius: '12px',
+                                        backgroundColor: ncStatus === 'CONNECTED' ? 'rgba(56, 102, 66, 0.25)' : 'rgba(230, 167, 76, 0.2)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '1.4rem',
+                                    }}>
+                                        ☁️
+                                    </div>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--mtc-cornsilk)' }}>
+                                                Nextcloud WebDAV Server
+                                            </h3>
+                                            <span style={{
+                                                padding: '3px 10px',
+                                                borderRadius: '20px',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 700,
+                                                letterSpacing: '0.04em',
+                                                textTransform: 'uppercase',
+                                                backgroundColor: ncStatus === 'CONNECTED' ? 'rgba(56, 102, 66, 0.35)' : 'rgba(239, 68, 68, 0.2)',
+                                                color: ncStatus === 'CONNECTED' ? '#A7F3D0' : '#FCA5A5',
+                                                border: ncStatus === 'CONNECTED' ? '1px solid rgba(167, 243, 208, 0.3)' : '1px solid rgba(252, 165, 165, 0.3)',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '6px'
+                                            }}>
+                                                <span style={{
+                                                    width: '6px',
+                                                    height: '6px',
+                                                    borderRadius: '50%',
+                                                    backgroundColor: ncStatus === 'CONNECTED' ? '#34D399' : '#EF4444',
+                                                    display: 'inline-block',
+                                                    boxShadow: ncStatus === 'CONNECTED' ? '0 0 8px #34D399' : 'none',
+                                                }} />
+                                                {ncStatus === 'CHECKING' ? 'Checking...' : ncStatus}
+                                            </span>
+                                        </div>
+                                        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                            Target Server: <code style={{ color: 'var(--mtc-cornsilk)' }}>{ncUrl || 'https://nextcloud.mtc-network.space/'}</code>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleTestNextcloud}
+                                        disabled={ncTesting}
+                                        className="btn btn-secondary"
+                                        style={{ fontSize: '0.82rem', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                        {ncTesting ? '⏳ Testing...' : '⚡ Test Connection'}
+                                    </button>
+                                    <a
+                                        href="https://nextcloud.mtc-network.space/settings/user/security"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="btn btn-primary"
+                                        style={{ fontSize: '0.82rem', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: '6px', textDecoration: 'none' }}
+                                    >
+                                        🔗 Nextcloud Security Page
+                                    </a>
+                                </div>
+                            </div>
+
+                            {/* Storage Quota Gauge (if available) */}
+                            {ncQuota && ncQuota.available > 0 && (
+                                <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '8px' }}>
+                                        <span style={{ color: 'var(--text-muted)' }}>Nextcloud Storage Quota</span>
+                                        <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 600 }}>
+                                            {(ncQuota.used / (1024 * 1024 * 1024)).toFixed(2)} GB used of {((ncQuota.used + ncQuota.available) / (1024 * 1024 * 1024)).toFixed(2)} GB
+                                        </span>
+                                    </div>
+                                    <div style={{ height: '8px', backgroundColor: 'rgba(20, 28, 30, 0.8)', borderRadius: '4px', overflow: 'hidden' }}>
+                                        <div style={{
+                                            width: `${Math.min(100, (ncQuota.used / (ncQuota.used + ncQuota.available)) * 100)}%`,
+                                            height: '100%',
+                                            background: 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80)',
+                                            borderRadius: '4px',
+                                            transition: 'width 0.4s ease',
+                                        }} />
+                                    </div>
+                                </div>
+                            )}
+
+                            {ncStatus === 'DISCONNECTED' && (
+                                <div style={{
+                                    marginTop: '16px',
+                                    padding: '10px 14px',
+                                    borderRadius: '8px',
+                                    backgroundColor: 'rgba(230, 167, 76, 0.12)',
+                                    border: '1px solid rgba(230, 167, 76, 0.25)',
+                                    fontSize: '0.82rem',
+                                    color: '#FFD180',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <span>⚠️</span>
+                                    <span>
+                                        Nextcloud is currently not connected. The platform is operating in <strong>Local Storage Fallback</strong> mode. All asset uploads and streaming continue to function smoothly.
+                                    </span>
+                                </div>
+                            )}
+                        </section>
+
+                        {/* Feedback Banner */}
+                        {ncFeedback && (
+                            <div style={{
+                                padding: '12px 18px',
+                                borderRadius: '8px',
+                                backgroundColor: ncFeedback.type === 'success' ? 'rgba(56, 102, 66, 0.25)' : 'rgba(239, 68, 68, 0.2)',
+                                border: ncFeedback.type === 'success' ? '1px solid rgba(167, 243, 208, 0.4)' : '1px solid rgba(252, 165, 165, 0.4)',
+                                color: ncFeedback.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                fontSize: '0.85rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                            }}>
+                                <span>{ncFeedback.type === 'success' ? '✅' : '❌'}</span>
+                                <span style={{ flex: 1 }}>{ncFeedback.message}</span>
+                                <button
+                                    onClick={() => setNcFeedback(null)}
+                                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '1rem' }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Configuration Form & Server Settings */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '24px' }}>
+                            <section className="card">
+                                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span>⚙️</span>
+                                    <span>WebDAV Credentials & Connection Parameters</span>
+                                </h4>
+
+                                <form onSubmit={handleSaveNextcloud} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Nextcloud Server URL
+                                        </label>
+                                        <input
+                                            type="url"
+                                            value={ncUrl}
+                                            onChange={e => setNcUrl(e.target.value)}
+                                            required
+                                            placeholder="https://nextcloud.mtc-network.space/"
+                                            className="form-control"
+                                            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem' }}
+                                        />
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                            Resolved WebDAV endpoint: <code style={{ color: 'var(--mtc-cornsilk)' }}>{ncWebdavUrl || `${ncUrl.replace(/\/+$/, '')}/remote.php/webdav/`}</code>
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Nextcloud WebDAV Username
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={ncUsername}
+                                            onChange={e => setNcUsername(e.target.value)}
+                                            required
+                                            placeholder="e.g. admin or your Nextcloud username"
+                                            className="form-control"
+                                            style={{ width: '100%' }}
+                                        />
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                            The account name associated with the App Password on Nextcloud.
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                            <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>
+                                                App Password / Token {ncHasPassword && <span style={{ color: '#A7F3D0', fontWeight: 400 }}>(configured)</span>}
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowPassword(!showPassword)}
+                                                style={{ background: 'none', border: 'none', color: 'var(--mtc-cornsilk)', fontSize: '0.75rem', cursor: 'pointer', textDecoration: 'underline' }}
+                                            >
+                                                {showPassword ? 'Hide' : 'Show'}
+                                            </button>
+                                        </div>
+                                        <input
+                                            type={showPassword ? 'text' : 'password'}
+                                            value={ncPassword}
+                                            onChange={e => setNcPassword(e.target.value)}
+                                            placeholder={ncHasPassword ? '•••••••••••••••• (leave blank to keep current)' : 'Enter generated Nextcloud App Token'}
+                                            className="form-control"
+                                            style={{ width: '100%', fontFamily: showPassword ? 'monospace' : 'inherit' }}
+                                        />
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                            💡 Recommended: Generate a dedicated App Password from Nextcloud Settings → Security rather than your main password.
+                                        </span>
+                                    </div>
+
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Target Storage Folder in Nextcloud
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={ncRootFolder}
+                                            onChange={e => setNcRootFolder(e.target.value)}
+                                            placeholder="/mtc-dam-uploads"
+                                            className="form-control"
+                                            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem' }}
+                                        />
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                            Directory created inside your Nextcloud account for all media stems, proxies, and ingested masters.
+                                        </span>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '12px', marginTop: '10px' }}>
+                                        <button
+                                            type="submit"
+                                            disabled={ncSaving}
+                                            className="btn btn-primary"
+                                            style={{ flex: 1, padding: '10px 18px', fontSize: '0.88rem' }}
+                                        >
+                                            {ncSaving ? 'Saving Configuration...' : '💾 Save & Connect Server'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleTestNextcloud}
+                                            disabled={ncTesting}
+                                            className="btn btn-secondary"
+                                            style={{ padding: '10px 18px', fontSize: '0.88rem' }}
+                                        >
+                                            {ncTesting ? 'Testing...' : '⚡ Test'}
+                                        </button>
+                                    </div>
+                                </form>
+                            </section>
+
+                            {/* Step-by-Step Linking Guide Panel */}
+                            <section className="card" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span>📖</span>
+                                    <span>How to Link DAM to Nextcloud</span>
+                                </h4>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                                    <div style={{
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'rgba(20, 28, 30, 0.6)',
+                                        border: '1px solid var(--border-color)',
+                                    }}>
+                                        <div style={{ fontWeight: 700, color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                            1. Open Security Settings
+                                        </div>
+                                        <p style={{ margin: 0, fontSize: '0.78rem' }}>
+                                            Log in at <a href="https://nextcloud.mtc-network.space/" target="_blank" rel="noopener noreferrer" style={{ color: '#A7F3D0' }}>nextcloud.mtc-network.space</a>. Click your user avatar in the top right → <strong>Personal Settings</strong> → <strong>Security</strong>.
+                                        </p>
+                                    </div>
+
+                                    <div style={{
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'rgba(20, 28, 30, 0.6)',
+                                        border: '1px solid var(--border-color)',
+                                    }}>
+                                        <div style={{ fontWeight: 700, color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                            2. Generate App Password
+                                        </div>
+                                        <p style={{ margin: 0, fontSize: '0.78rem' }}>
+                                            Scroll down to <strong>"Devices & credentials"</strong>. In the <em>App name</em> input, type: <code style={{ color: 'var(--mtc-cornsilk)' }}>MTC DAM Studio</code>, then click <strong>Create new app password</strong>.
+                                        </p>
+                                    </div>
+
+                                    <div style={{
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'rgba(20, 28, 30, 0.6)',
+                                        border: '1px solid var(--border-color)',
+                                    }}>
+                                        <div style={{ fontWeight: 700, color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                            3. Paste & Connect
+                                        </div>
+                                        <p style={{ margin: 0, fontSize: '0.78rem' }}>
+                                            Nextcloud will display a <strong>Username</strong> and a multi-word <strong>Password / Token</strong>. Copy them into this form and click <strong>Save & Connect Server</strong>!
+                                        </p>
+                                    </div>
+
+                                    <div style={{
+                                        padding: '12px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'rgba(56, 102, 66, 0.15)',
+                                        border: '1px solid rgba(56, 102, 66, 0.3)',
+                                        color: '#CADEDF',
+                                        fontSize: '0.76rem',
+                                    }}>
+                                        🔒 <strong>Security Note:</strong> App Passwords can be revoked at any time from your Nextcloud dashboard without altering your personal account login.
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
                 )}
             </div>
         </Sidebar>
