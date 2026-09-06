@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTC DAM — DaVinci Resolve</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #141c1e;
+            color: #CADEDF;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #header-bar {
+            height: 38px;
+            background-color: #0A0F11;
+            border-bottom: 1px solid rgba(202, 222, 223, 0.15);
+            display: flex;
+            align-items: center;
+            justifyContent: space-between;
+            padding: 0 12px;
+            font-size: 0.8rem;
+            user-select: none;
+        }
+
+        .brand {
+            font-weight: 700;
+            color: #FEFAE0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #D4A373;
+            display: inline-block;
+        }
+
+        .server-btn {
+            background: rgba(202, 222, 223, 0.1);
+            border: 1px solid rgba(202, 222, 223, 0.2);
+            color: #CADEDF;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            cursor: pointer;
+        }
+
+        #content-frame {
+            flex: 1;
+            width: 100%;
+            height: calc(100% - 38px);
+            border: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="header-bar">
+        <div class="brand">
+            <span class="status-dot" id="status-indicator"></span>
+            <span>MTC DAM</span>
+            <span style="font-size: 0.68rem; color: #D4A373; padding: 1px 4px; border-radius: 3px; background: rgba(212,163,115,0.2);">RESOLVE</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="bridge-status" style="font-size: 0.7rem; color: #8A9D9E;">Connecting...</span>
+        </div>
+    </div>
+
+    <!-- Embedded NLE Panel View -->
+    <iframe id="content-frame" src="about:blank"></iframe>
+
+    <script>
+        const DEFAULT_SERVER = window.location.origin.includes("localhost")
+            ? window.location.origin
+            : "https://dam-for-mtc.onrender.com";
+
+        let savedServer = localStorage.getItem("mtc_dam_server") || DEFAULT_SERVER;
+        let savedToken = localStorage.getItem("mtc_dam_nle_token") || "";
+
+        const iframe = document.getElementById("content-frame");
+        const statusIndicator = document.getElementById("status-indicator");
+        const bridgeStatus = document.getElementById("bridge-status");
+
+        function updateIframe() {
+            let cleanUrl = savedServer.replace(/\/+$/, "");
+            let target = cleanUrl + "/integrations/nle?host=resolve";
+            if (savedToken) {
+                target += "&token=" + encodeURIComponent(savedToken);
+            }
+            iframe.src = target;
+        }
+
+        // Check local DaVinci Resolve Python bridge
+        function checkResolveBridge() {
+            fetch("http://127.0.0.1:8765", { method: "GET" })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === "ready") {
+                        statusIndicator.style.backgroundColor = "#386642";
+                        bridgeStatus.textContent = data.activeProject || "Resolve Ready";
+                        bridgeStatus.style.color = "#A7F3D0";
+                    } else {
+                        statusIndicator.style.backgroundColor = "#D4A373";
+                        bridgeStatus.textContent = "Open Project in Resolve";
+                    }
+                })
+                .catch(() => {
+                    statusIndicator.style.backgroundColor = "#D4A373";
+                    bridgeStatus.textContent = "Bridge Offline";
+                });
+        }
+
+        setInterval(checkResolveBridge, 5000);
+        checkResolveBridge();
+
+        // Listen for messages from the embedded panel
+        window.addEventListener("message", function(event) {
+            const data = event.data;
+            if (!data || !data.type) return;
+
+            if (data.type === "IMPORT_TO_RESOLVE") {
+                fetch("http://127.0.0.1:8765", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        downloadUrl: data.downloadUrl,
+                        fileName: data.fileName,
+                        binName: data.binName || "MTC DAM Assets",
+                        token: savedToken
+                    })
+                })
+                .then(r => r.json())
+                .then(result => {
+                    iframe.contentWindow.postMessage({
+                        type: "RESOLVE_IMPORT_RESULT",
+                        id: data.id,
+                        result: result
+                    }, "*");
+                })
+                .catch(err => {
+                    iframe.contentWindow.postMessage({
+                        type: "RESOLVE_IMPORT_RESULT",
+                        id: data.id,
+                        result: { success: false, error: "Resolve bridge unreachable. Run MTC_DAM_Importer.py." }
+                    }, "*");
+                });
+            }
+        });
+
+        updateIframe();
+    </script>
+</body>
+</html>

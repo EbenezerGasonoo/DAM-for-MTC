@@ -13,6 +13,7 @@ const navItems = [
     { name: 'Assets', path: '/assets', icon: '◰' },
     { name: 'Favorites', path: '/favorites', icon: '❤️' },
     { name: 'Workflow', path: '/workflow', icon: '◩' },
+    { name: 'NLE Integrations', path: '/integrations', icon: '🎬' },
     { name: 'Settings', path: '/settings', icon: '⛭' },
 ];
 

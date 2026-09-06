@@ -1,0 +1,20 @@
+{
+    "id": "com.mtc.dam.resolve",
+    "name": "MTC DAM Media Hub",
+    "description": "Enterprise Digital Asset Management for DaVinci Resolve",
+    "version": "1.0.0",
+    "main": "index.html",
+    "author": "Mountain Top Communications",
+    "capabilities": [
+        "MediaPool",
+        "Timeline",
+        "Project"
+    ],
+    "window": {
+        "title": "MTC DAM Media Hub",
+        "width": 380,
+        "height": 650,
+        "minWidth": 280,
+        "minHeight": 350
+    }
+}

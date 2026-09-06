@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MTC DAM — Adobe Premiere Pro</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #141c1e;
+            color: #CADEDF;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #header-bar {
+            height: 38px;
+            background-color: #0A0F11;
+            border-bottom: 1px solid rgba(202, 222, 223, 0.15);
+            display: flex;
+            align-items: center;
+            justifyContent: space-between;
+            padding: 0 12px;
+            font-size: 0.8rem;
+            user-select: none;
+        }
+
+        .brand {
+            font-weight: 700;
+            color: #FEFAE0;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #386642;
+            display: inline-block;
+        }
+
+        .server-btn {
+            background: rgba(202, 222, 223, 0.1);
+            border: 1px solid rgba(202, 222, 223, 0.2);
+            color: #CADEDF;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            cursor: pointer;
+        }
+
+        #content-frame {
+            flex: 1;
+            width: 100%;
+            height: calc(100% - 38px);
+            border: none;
+        }
+
+        #config-modal {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(10, 15, 17, 0.95);
+            padding: 20px;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px 10px;
+            background: #141C1E;
+            border: 1px solid rgba(202, 222, 223, 0.3);
+            border-radius: 4px;
+            color: #FEFAE0;
+            font-size: 0.85rem;
+        }
+
+        button.primary-btn {
+            background: #386642;
+            color: #fff;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.82rem;
+        }
+    </style>
+</head>
+<body>
+    <div id="header-bar">
+        <div class="brand">
+            <span class="status-dot" id="status-indicator"></span>
+            <span>MTC DAM</span>
+            <span style="font-size: 0.68rem; color: #7B9E89; padding: 1px 4px; border-radius: 3px; background: rgba(56,102,66,0.3);">PPRO</span>
+        </div>
+        <button class="server-btn" id="config-btn">⚙ Server</button>
+    </div>
+
+    <!-- Embedded NLE Panel View -->
+    <iframe id="content-frame" src="about:blank"></iframe>
+
+    <!-- Server Configuration Modal -->
+    <div id="config-modal">
+        <h3 style="color: #FEFAE0; font-size: 0.95rem;">MTC DAM Server Settings</h3>
+        <p style="font-size: 0.75rem; color: #8A9D9E;">Enter the URL of your deployed MTC DAM instance:</p>
+        <input type="text" id="server-url-input" placeholder="https://your-dam.onrender.com" />
+        <p style="font-size: 0.75rem; color: #8A9D9E;">Personal NLE Access Token (Optional):</p>
+        <input type="text" id="server-token-input" placeholder="Paste your NLE Token from /integrations" />
+        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;">
+            <button class="server-btn" id="cancel-config-btn">Cancel</button>
+            <button class="primary-btn" id="save-config-btn">Connect & Save</button>
+        </div>
+    </div>
+
+    <script src="./js/CSInterface.js"></script>
+    <script>
+        const csInterface = new CSInterface();
+        const DEFAULT_SERVER = window.location.origin.includes("localhost") 
+            ? window.location.origin 
+            : "https://dam-for-mtc.onrender.com";
+
+        // Load saved server configuration
+        let savedServer = localStorage.getItem("mtc_dam_server") || DEFAULT_SERVER;
+        let savedToken = localStorage.getItem("mtc_dam_nle_token") || "";
+
+        const iframe = document.getElementById("content-frame");
+        const modal = document.getElementById("config-modal");
+        const serverInput = document.getElementById("server-url-input");
+        const tokenInput = document.getElementById("server-token-input");
+        const statusIndicator = document.getElementById("status-indicator");
+
+        function updateIframe() {
+            let cleanUrl = savedServer.replace(/\/+$/, "");
+            let target = cleanUrl + "/integrations/nle?host=premiere";
+            if (savedToken) {
+                target += "&token=" + encodeURIComponent(savedToken);
+            }
+            iframe.src = target;
+        }
+
+        // Test Premiere Pro ExtendScript connection
+        csInterface.evalScript("$._mtc_dam.ping()", function(result) {
+            try {
+                const res = JSON.parse(result);
+                if (res.status === "ok") {
+                    statusIndicator.style.backgroundColor = "#386642";
+                    statusIndicator.title = "Connected to " + res.projectName + " (" + res.appName + " " + res.appVersion + ")";
+                } else {
+                    statusIndicator.style.backgroundColor = "#D4A373";
+                    statusIndicator.title = res.message || "Premiere Pro idle";
+                }
+            } catch (e) {
+                statusIndicator.style.backgroundColor = "#386642";
+            }
+        });
+
+        // Listen for messages from the embedded DAM panel
+        window.addEventListener("message", function(event) {
+            const data = event.data;
+            if (!data || !data.type) return;
+
+            // 1. IMPORT TO ACTIVE BIN
+            if (data.type === "IMPORT_TO_BIN") {
+                const filePath = data.filePath;
+                const binName = data.binName || "MTC DAM Assets";
+                const script = "$._mtc_dam.importFileToBin('" + filePath.replace(/\\/g, "\\\\") + "', '" + binName + "')";
+
+                csInterface.evalScript(script, function(result) {
+                    try {
+                        const parsed = JSON.parse(result);
+                        iframe.contentWindow.postMessage({
+                            type: "IMPORT_RESULT",
+                            id: data.id,
+                            result: parsed
+                        }, "*");
+                    } catch (e) {
+                        console.error("Error parsing ExtendScript result:", e);
+                    }
+                });
+            }
+
+            // 2. INSERT TO ACTIVE TIMELINE
+            if (data.type === "INSERT_TO_TIMELINE") {
+                const filePath = data.filePath;
+                const script = "$._mtc_dam.insertToTimeline('" + filePath.replace(/\\/g, "\\\\") + "')";
+
+                csInterface.evalScript(script, function(result) {
+                    try {
+                        const parsed = JSON.parse(result);
+                        iframe.contentWindow.postMessage({
+                            type: "INSERT_RESULT",
+                            id: data.id,
+                            result: parsed
+                        }, "*");
+                    } catch (e) {}
+                });
+            }
+
+            // 3. GET ACTIVE SEQUENCE INFO
+            if (data.type === "GET_SEQUENCE_INFO") {
+                csInterface.evalScript("$._mtc_dam.getActiveSequenceInfo()", function(result) {
+                    try {
+                        const parsed = JSON.parse(result);
+                        iframe.contentWindow.postMessage({
+                            type: "SEQUENCE_INFO_RESULT",
+                            result: parsed
+                        }, "*");
+                    } catch (e) {}
+                });
+            }
+
+            // 4. DOWNLOAD FILE VIA NODE.JS IF RUNNING UNDER CEP
+            if (data.type === "DOWNLOAD_AND_IMPORT" && typeof require !== "undefined") {
+                downloadAndImportNode(data);
+            }
+        });
+
+        // Node.js direct local scratch downloader inside CEP
+        function downloadAndImportNode(data) {
+            try {
+                const fs = require("fs");
+                const path = require("path");
+                const https = require("https");
+                const http = require("http");
+                const os = require("os");
+
+                const cacheDir = path.join(os.homedir(), "Documents", "MTC_DAM_Cache");
+                if (!fs.existsSync(cacheDir)) {
+                    fs.mkdirSync(cacheDir, { recursive: true });
+                }
+
+                const cleanFileName = data.fileName.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+                const targetFilePath = path.join(cacheDir, cleanFileName);
+
+                const fileStream = fs.createWriteStream(targetFilePath);
+                const client = data.downloadUrl.startsWith("https") ? https : http;
+
+                client.get(data.downloadUrl, function(response) {
+                    response.pipe(fileStream);
+                    fileStream.on("finish", function() {
+                        fileStream.close(function() {
+                            // Trigger ExtendScript import
+                            const script = "$._mtc_dam.importFileToBin('" + targetFilePath.replace(/\\/g, "\\\\") + "', '" + (data.binName || "MTC DAM Assets") + "')";
+                            csInterface.evalScript(script, function(result) {
+                                iframe.contentWindow.postMessage({
+                                    type: "IMPORT_RESULT",
+                                    id: data.id,
+                                    result: JSON.parse(result)
+                                }, "*");
+                            });
+                        });
+                    });
+                }).on("error", function(err) {
+                    fs.unlink(targetFilePath, function() {});
+                    iframe.contentWindow.postMessage({
+                        type: "IMPORT_RESULT",
+                        id: data.id,
+                        result: { success: false, error: err.message }
+                    }, "*");
+                });
+            } catch (err) {
+                console.error("Node download error:", err);
+            }
+        }
+
+        // Server configuration modal handlers
+        document.getElementById("config-btn").addEventListener("click", function() {
+            serverInput.value = savedServer;
+            tokenInput.value = savedToken;
+            modal.style.display = "flex";
+        });
+
+        document.getElementById("cancel-config-btn").addEventListener("click", function() {
+            modal.style.display = "none";
+        });
+
+        document.getElementById("save-config-btn").addEventListener("click", function() {
+            let val = serverInput.value.trim();
+            if (val) {
+                savedServer = val;
+                localStorage.setItem("mtc_dam_server", savedServer);
+            }
+            savedToken = tokenInput.value.trim();
+            localStorage.setItem("mtc_dam_nle_token", savedToken);
+            modal.style.display = "none";
+            updateIframe();
+        });
+
+        // Initialize frame
+        updateIframe();
+    </script>
+</body>
+</html>
