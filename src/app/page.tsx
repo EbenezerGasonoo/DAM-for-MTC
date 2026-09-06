@@ -78,6 +78,8 @@ export default function DashboardPage() {
   const [selectedAsset, setSelectedAsset] = useState<AssetDetail | null>(null);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -90,6 +92,30 @@ export default function DashboardPage() {
       console.error('Failed to load dashboard metrics:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuickSync = async () => {
+    setIsSyncing(true);
+    setSyncToast(null);
+    try {
+      const res = await fetch('/api/settings/nextcloud/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: '/', recursive: true })
+      });
+      const json = await res.json();
+      if (res.ok && json.success) {
+        setSyncToast(json.message);
+        await fetchDashboardData();
+      } else {
+        setSyncToast(json.error || 'Failed to sync Nextcloud files.');
+      }
+    } catch {
+      setSyncToast('Network error during sync.');
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setSyncToast(null), 6000);
     }
   };
 
@@ -121,13 +147,42 @@ export default function DashboardPage() {
         title="Dashboard"
         subtitle="Mountain Top Communications Production Pipeline"
         actions={
-          <button className="btn btn-primary" onClick={() => setIsUploadOpen(true)}>
-            + Upload Asset
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={handleQuickSync}
+              disabled={isSyncing}
+              style={{ fontSize: '0.82rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              title="Scan Nextcloud and local storage folders to discover and import media files"
+            >
+              {isSyncing ? '⏳ Syncing...' : '🔄 Sync Nextcloud'}
+            </button>
+            <button className="btn btn-primary" onClick={() => setIsUploadOpen(true)} style={{ fontSize: '0.82rem', padding: '7px 14px' }}>
+              + Upload Asset
+            </button>
+          </div>
         }
       />
 
       <div className="content-area">
+        {syncToast && (
+          <div style={{
+            marginBottom: '20px',
+            padding: '12px 18px',
+            borderRadius: '8px',
+            backgroundColor: syncToast.includes('Failed') || syncToast.includes('error') ? 'rgba(239, 68, 68, 0.2)' : 'rgba(56, 102, 66, 0.25)',
+            border: syncToast.includes('Failed') || syncToast.includes('error') ? '1px solid rgba(252, 165, 165, 0.4)' : '1px solid rgba(167, 243, 208, 0.4)',
+            color: syncToast.includes('Failed') || syncToast.includes('error') ? '#FCA5A5' : '#A7F3D0',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.2)'
+          }}>
+            <span>{syncToast}</span>
+            <button onClick={() => setSyncToast(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
         {/* Welcome Hero Banner */}
         <section style={{
           marginBottom: '32px',
@@ -246,9 +301,19 @@ export default function DashboardPage() {
                 <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 16px auto' }}>
                   Your workspace is clean. Upload media files (video, image, audio, stems) to store them directly in your Nextcloud storage!
                 </p>
-                <button className="btn btn-primary" onClick={() => setIsUploadOpen(true)} style={{ fontSize: '0.84rem' }}>
-                  + Upload Your First Asset
-                </button>
+                <div style={{ display: 'flex', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <button className="btn btn-primary" onClick={() => setIsUploadOpen(true)} style={{ fontSize: '0.84rem' }}>
+                    + Upload Your First Asset
+                  </button>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleQuickSync}
+                    disabled={isSyncing}
+                    style={{ fontSize: '0.84rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    {isSyncing ? '⏳ Syncing Nextcloud...' : '🔄 Scan Nextcloud for Files'}
+                  </button>
+                </div>
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>

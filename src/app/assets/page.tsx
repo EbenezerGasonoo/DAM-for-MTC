@@ -67,6 +67,34 @@ export default function AssetsPage() {
     const [bulkTagInput, setBulkTagInput] = useState('');
     const [showTagModal, setShowTagModal] = useState(false);
 
+    // Nextcloud quick sync state
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncToast, setSyncToast] = useState<string | null>(null);
+
+    const handleSyncNextcloud = async () => {
+        setIsSyncing(true);
+        setSyncToast(null);
+        try {
+            const res = await fetch('/api/settings/nextcloud/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folder: '/', recursive: true })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setSyncToast(data.message);
+                await fetchAssets();
+            } else {
+                setSyncToast(data.error || 'Sync failed.');
+            }
+        } catch {
+            setSyncToast('Network error during sync.');
+        } finally {
+            setIsSyncing(false);
+            setTimeout(() => setSyncToast(null), 6000);
+        }
+    };
+
     useEffect(() => {
         fetchAssets();
     }, [filters]);
@@ -253,8 +281,42 @@ export default function AssetsPage() {
 
     return (
         <Sidebar>
-            <Header title="Assets" subtitle={`${assets.length} production assets found`} />
+            <Header
+                title="Assets"
+                subtitle={`${assets.length} production assets found`}
+                actions={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button
+                            className="btn btn-secondary"
+                            onClick={handleSyncNextcloud}
+                            disabled={isSyncing}
+                            style={{ fontSize: '0.82rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            title="Scan Nextcloud and local folders to discover and import media files"
+                        >
+                            {isSyncing ? '⏳ Syncing...' : '🔄 Sync Nextcloud'}
+                        </button>
+                    </div>
+                }
+            />
             <div className="content-area" style={{ position: 'relative', paddingBottom: selectedAssetIds.size > 0 ? '90px' : '20px' }}>
+                {syncToast && (
+                    <div style={{
+                        marginBottom: '16px',
+                        padding: '12px 18px',
+                        borderRadius: '8px',
+                        backgroundColor: syncToast.includes('Failed') || syncToast.includes('error') ? 'rgba(239, 68, 68, 0.2)' : 'rgba(56, 102, 66, 0.25)',
+                        border: syncToast.includes('Failed') || syncToast.includes('error') ? '1px solid rgba(252, 165, 165, 0.4)' : '1px solid rgba(167, 243, 208, 0.4)',
+                        color: syncToast.includes('Failed') || syncToast.includes('error') ? '#FCA5A5' : '#A7F3D0',
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.2)'
+                    }}>
+                        <span>{syncToast}</span>
+                        <button onClick={() => setSyncToast(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}>✕</button>
+                    </div>
+                )}
                 <SearchFilter onSearch={setFilters} onSaveSearch={handleSaveSearch} />
 
                 {/* Subheader Controls & View Toggle */}

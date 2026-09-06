@@ -241,3 +241,156 @@ export async function listDirectory(dirPath: string) {
     const files = await fs.promises.readdir(localDir);
     return files.map(f => ({ filename: f, basename: f }));
 }
+
+export interface ScannedMediaFile {
+    filename: string;
+    basename: string;
+    cleanTitle: string;
+    size: number;
+    type: 'video' | 'image' | 'audio' | 'document';
+    mimeType: string;
+    lastmod: string;
+    source: 'nextcloud' | 'local';
+}
+
+export const EXTENSION_MAP: Record<string, { type: 'video' | 'image' | 'audio' | 'document'; mime: string }> = {
+    // Video
+    mp4: { type: 'video', mime: 'video/mp4' },
+    mov: { type: 'video', mime: 'video/quicktime' },
+    webm: { type: 'video', mime: 'video/webm' },
+    mkv: { type: 'video', mime: 'video/x-matroska' },
+    avi: { type: 'video', mime: 'video/x-msvideo' },
+    m4v: { type: 'video', mime: 'video/mp4' },
+    wmv: { type: 'video', mime: 'video/x-ms-wmv' },
+    flv: { type: 'video', mime: 'video/x-flv' },
+
+    // Image
+    jpg: { type: 'image', mime: 'image/jpeg' },
+    jpeg: { type: 'image', mime: 'image/jpeg' },
+    png: { type: 'image', mime: 'image/png' },
+    webp: { type: 'image', mime: 'image/webp' },
+    gif: { type: 'image', mime: 'image/gif' },
+    svg: { type: 'image', mime: 'image/svg+xml' },
+    psd: { type: 'image', mime: 'image/vnd.adobe.photoshop' },
+    ai: { type: 'image', mime: 'application/illustrator' },
+    tif: { type: 'image', mime: 'image/tiff' },
+    tiff: { type: 'image', mime: 'image/tiff' },
+    bmp: { type: 'image', mime: 'image/bmp' },
+    ico: { type: 'image', mime: 'image/x-icon' },
+
+    // Audio
+    mp3: { type: 'audio', mime: 'audio/mpeg' },
+    wav: { type: 'audio', mime: 'audio/wav' },
+    ogg: { type: 'audio', mime: 'audio/ogg' },
+    flac: { type: 'audio', mime: 'audio/flac' },
+    m4a: { type: 'audio', mime: 'audio/mp4' },
+    aac: { type: 'audio', mime: 'audio/aac' },
+    wma: { type: 'audio', mime: 'audio/x-ms-wma' },
+
+    // Documents
+    pdf: { type: 'document', mime: 'application/pdf' },
+    zip: { type: 'document', mime: 'application/zip' },
+    doc: { type: 'document', mime: 'application/msword' },
+    docx: { type: 'document', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+    ppt: { type: 'document', mime: 'application/vnd.ms-powerpoint' },
+    pptx: { type: 'document', mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation' },
+    xls: { type: 'document', mime: 'application/vnd.ms-excel' },
+    xlsx: { type: 'document', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+};
+
+export async function scanNextcloudFiles(
+    targetFolder: string = '/',
+    recursive: boolean = true,
+    maxDepth: number = 5
+): Promise<ScannedMediaFile[]> {
+    const results: ScannedMediaFile[] = [];
+    const { client } = await getNextcloudClient();
+
+    if (client) {
+        const queue: Array<{ path: string; depth: number }> = [{ path: targetFolder || '/', depth: 0 }];
+        const visited = new Set<string>();
+
+        while (queue.length > 0) {
+            const current = queue.shift()!;
+            if (visited.has(current.path)) continue;
+            visited.add(current.path);
+
+            try {
+                const items = await client.getDirectoryContents(current.path);
+                const itemsList = Array.isArray(items) ? items : (items as any)?.data || [];
+
+                for (const item of itemsList) {
+                    const basename = item.basename || path.posix.basename(item.filename);
+                    if (basename.startsWith('.') || basename === '.Trash' || basename === 'Thumbs.db') continue;
+
+                    if (item.type === 'directory') {
+                        if (recursive && current.depth < maxDepth) {
+                            queue.push({ path: item.filename, depth: current.depth + 1 });
+                        }
+                    } else {
+                        const ext = (basename.split('.').pop() || '').toLowerCase();
+                        const match = EXTENSION_MAP[ext];
+                        if (match) {
+                            const cleanTitle = basename.replace(/\.[^/.]+$/, '').replace(/[_\\-]+/g, ' ').trim();
+                            results.push({
+                                filename: item.filename,
+                                basename,
+                                cleanTitle: cleanTitle || basename,
+                                size: Number(item.size || 0),
+                                type: match.type,
+                                mimeType: item.mime || match.mime,
+                                lastmod: item.lastmod || new Date().toISOString(),
+                                source: 'nextcloud',
+                            });
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn(`Failed to scan Nextcloud path: ${current.path}`, err);
+            }
+        }
+    } else {
+        // Local directory fallback scanner
+        const localBase = LOCAL_STORAGE_DIR;
+        if (fs.existsSync(localBase)) {
+            const queue: Array<{ dir: string; relative: string; depth: number }> = [{ dir: localBase, relative: '', depth: 0 }];
+            while (queue.length > 0) {
+                const { dir, relative, depth } = queue.shift()!;
+                try {
+                    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+                    for (const entry of entries) {
+                        if (entry.name.startsWith('.')) continue;
+                        const fullPath = path.join(dir, entry.name);
+                        const relPath = relative ? `${relative}/${entry.name}` : entry.name;
+                        if (entry.isDirectory()) {
+                            if (recursive && depth < maxDepth) {
+                                queue.push({ dir: fullPath, relative: relPath, depth: depth + 1 });
+                            }
+                        } else if (entry.isFile()) {
+                            const ext = (entry.name.split('.').pop() || '').toLowerCase();
+                            const match = EXTENSION_MAP[ext];
+                            if (match) {
+                                const stat = await fs.promises.stat(fullPath);
+                                const cleanTitle = entry.name.replace(/\.[^/.]+$/, '').replace(/[_\\-]+/g, ' ').trim();
+                                results.push({
+                                    filename: `/storage/${relPath.replace(/\\\\/g, '/')}`,
+                                    basename: entry.name,
+                                    cleanTitle: cleanTitle || entry.name,
+                                    size: stat.size,
+                                    type: match.type,
+                                    mimeType: match.mime,
+                                    lastmod: stat.mtime.toISOString(),
+                                    source: 'local',
+                                });
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Failed to read local dir:', dir, err);
+                }
+            }
+        }
+    }
+
+    return results;
+}

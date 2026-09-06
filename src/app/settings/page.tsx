@@ -56,6 +56,12 @@ export default function SettingsPage() {
     const [ncFeedback, setNcFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
     const [showPassword, setShowPassword] = useState(false);
 
+    // Nextcloud Auto-Discovery & Sync State
+    const [ncSyncFolder, setNcSyncFolder] = useState('/');
+    const [ncSyncRecursive, setNcSyncRecursive] = useState(true);
+    const [ncSyncing, setNcSyncing] = useState(false);
+    const [ncSyncResult, setNcSyncResult] = useState<{ type: 'success' | 'error'; message: string; details?: any } | null>(null);
+
     // Watermark Profile state
     const [watermarkName, setWatermarkName] = useState('MTC Internal Confidential Burn-in');
     const [watermarkTemplate, setWatermarkTemplate] = useState('CONFIDENTIAL — MTC BROADCAST PIPELINE — {USER}');
@@ -168,6 +174,41 @@ export default function SettingsPage() {
             setNcFeedback({ type: 'error', message: err?.message || 'Failed to save settings.' });
         } finally {
             setNcSaving(false);
+        }
+    };
+
+    const handleSyncNextcloud = async () => {
+        setNcSyncing(true);
+        setNcSyncResult(null);
+        try {
+            const res = await fetch('/api/settings/nextcloud/sync', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    folder: ncSyncFolder,
+                    recursive: ncSyncRecursive,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setNcSyncResult({
+                    type: 'success',
+                    message: data.message,
+                    details: data,
+                });
+            } else {
+                setNcSyncResult({
+                    type: 'error',
+                    message: data.error || 'Sync failed. Ensure Nextcloud connection is valid.',
+                });
+            }
+        } catch (err: any) {
+            setNcSyncResult({
+                type: 'error',
+                message: err?.message || 'Network error during synchronization.',
+            });
+        } finally {
+            setNcSyncing(false);
         }
     };
 
@@ -992,6 +1033,85 @@ export default function SettingsPage() {
                                 </div>
                             </section>
                         </div>
+
+                        {/* Auto-Discovery & File Synchronization Panel */}
+                        <section className="card" style={{ marginTop: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '16px' }}>
+                                <div>
+                                    <h4 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                                        <span>🔄</span>
+                                        <span>Auto-Discovery & File Synchronization</span>
+                                    </h4>
+                                    <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: 0, maxWidth: '680px' }}>
+                                        Scan your Nextcloud server (and local storage folders) to automatically ingest existing videos, photos, audio stems, and documents into the DAM catalog without re-uploading.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleSyncNextcloud}
+                                    disabled={ncSyncing}
+                                    className="btn btn-primary"
+                                    style={{ padding: '10px 20px', fontSize: '0.88rem', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    {ncSyncing ? '⏳ Scanning & Indexing...' : '🔄 Scan & Sync Nextcloud Files'}
+                                </button>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 200px', gap: '16px', alignItems: 'center' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                        Nextcloud Folder Path to Scan
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={ncSyncFolder}
+                                        onChange={e => setNcSyncFolder(e.target.value)}
+                                        placeholder="/ (or e.g. /Photos, /Videos, /mtc-dam-uploads)"
+                                        className="form-control"
+                                        style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem' }}
+                                    />
+                                    <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
+                                        Enter <code>/</code> to scan all folders on your Nextcloud account, or specify a specific subfolder.
+                                    </span>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '16px' }}>
+                                    <input
+                                        type="checkbox"
+                                        id="ncSyncRecursive"
+                                        checked={ncSyncRecursive}
+                                        onChange={e => setNcSyncRecursive(e.target.checked)}
+                                        style={{ accentColor: 'var(--mtc-hunter-green)', width: '16px', height: '16px', cursor: 'pointer' }}
+                                    />
+                                    <label htmlFor="ncSyncRecursive" style={{ fontSize: '0.82rem', color: 'var(--mtc-cornsilk)', cursor: 'pointer' }}>
+                                        Include subfolders
+                                    </label>
+                                </div>
+                            </div>
+
+                            {ncSyncResult && (
+                                <div style={{
+                                    marginTop: '16px',
+                                    padding: '12px 16px',
+                                    borderRadius: '8px',
+                                    backgroundColor: ncSyncResult.type === 'success' ? 'rgba(56, 102, 66, 0.25)' : 'rgba(239, 68, 68, 0.2)',
+                                    border: ncSyncResult.type === 'success' ? '1px solid rgba(167, 243, 208, 0.4)' : '1px solid rgba(252, 165, 165, 0.4)',
+                                    color: ncSyncResult.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                    fontSize: '0.85rem',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                }}>
+                                    <span>{ncSyncResult.message}</span>
+                                    <button
+                                        onClick={() => setNcSyncResult(null)}
+                                        style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            )}
+                        </section>
                     </div>
                 )}
             </div>
