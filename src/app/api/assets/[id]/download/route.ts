@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getAuthFromCookies } from '@/lib/auth';
+import { getAuthFromCookies, verifyToken } from '@/lib/auth';
 import { readAssetFile } from '@/lib/nextcloud';
 import { applyImageWatermark, applyVideoWatermark, getWatermarkConfigForRole } from '@/lib/watermark';
 import { logActivity } from '@/lib/activity';
@@ -9,13 +9,36 @@ import { logActivity } from '@/lib/activity';
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
         const { id } = await params;
-        const auth = await getAuthFromCookies();
+        const { searchParams } = new URL(req.url);
 
-        if (!auth?.userId) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        // 1. Authenticate via Bearer header, URL token, cookies, or internal localhost bridge
+        let userId: string | null = null;
+        const authHeader = req.headers.get('authorization');
+        if (authHeader?.startsWith('Bearer ')) {
+            const payload = verifyToken(authHeader.substring(7).trim());
+            if (payload?.userId) userId = payload.userId;
         }
 
-        const { searchParams } = new URL(req.url);
+        const queryToken = searchParams.get('token');
+        if (!userId && queryToken) {
+            const payload = verifyToken(queryToken);
+            if (payload?.userId) userId = payload.userId;
+        }
+
+        if (!userId) {
+            const auth = await getAuthFromCookies();
+            if (auth?.userId) userId = auth.userId;
+        }
+
+        if (!userId) {
+            const host = req.headers.get('host') || '';
+            if (host.includes('localhost') || host.includes('127.0.0.1')) {
+                userId = 'internal_nle_editor';
+            } else {
+                return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            }
+        }
+
         const withWatermark = searchParams.get('watermark') === 'true';
 
         const asset = await prisma.asset.findUnique({
@@ -44,8 +67,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         }
 
         // Get user role for watermark determination
-        const user = await prisma.user.findUnique({ where: { id: auth.userId } });
-        const userRole = user?.role || 'VIEWER';
+        let userRole = 'EDITOR';
+        if (userId !== 'internal_nle_editor') {
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            userRole = user?.role || 'VIEWER';
+        }
 
         // Determine if watermark should be applied
         let responseBuffer = fileBuffer;

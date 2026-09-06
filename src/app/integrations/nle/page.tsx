@@ -126,52 +126,79 @@ function NLEPanelContent() {
 
     // 1. IMPORT TO PREMIERE PRO
     const handleImportPremiere = (asset: NLEAsset, insertTimeline = false) => {
-        showToast(`Preparing ${asset.title}...`, 'info');
-        const fullDownloadUrl = window.location.origin + asset.downloadUri;
+        showToast(`Preparing "${asset.title}" for Premiere...`, 'info');
+        const activeToken = initialToken || (typeof window !== 'undefined' ? localStorage.getItem('mtc_dam_nle_token') : '') || '';
+        let fullDownloadUrl = asset.downloadUri.startsWith('http')
+            ? asset.downloadUri
+            : `${window.location.origin}${asset.downloadUri}`;
+
+        if (activeToken && !fullDownloadUrl.includes('token=')) {
+            fullDownloadUrl += (fullDownloadUrl.includes('?') ? '&' : '?') + `token=${encodeURIComponent(activeToken)}`;
+        }
+
+        const ext = asset.mimeType.split('/')[1] || 'mp4';
+        const fileName = `${asset.title.replace(/[^a-zA-Z0-9.\-_]/g, '_')}.${ext}`;
+        const binName = asset.projectName || 'MTC DAM Assets';
 
         // Post message to parent container (index.html inside CEP)
         window.parent.postMessage({
             type: 'DOWNLOAD_AND_IMPORT',
             id: asset.id,
             downloadUrl: fullDownloadUrl,
-            fileName: `${asset.title}.${asset.mimeType.split('/')[1] || 'mp4'}`,
-            binName: asset.projectName || 'MTC DAM Assets',
+            fileName,
+            binName,
             insertTimeline,
+            token: activeToken,
         }, '*');
     };
 
     // 2. IMPORT TO DAVINCI RESOLVE
     const handleImportResolve = (asset: NLEAsset) => {
-        showToast(`Sending ${asset.title} to DaVinci Resolve...`, 'info');
-        const fullDownloadUrl = window.location.origin + asset.downloadUri;
+        showToast(`Sending "${asset.title}" to DaVinci Resolve...`, 'info');
+        const activeToken = initialToken || (typeof window !== 'undefined' ? localStorage.getItem('mtc_dam_nle_token') : '') || '';
+        let fullDownloadUrl = asset.downloadUri.startsWith('http')
+            ? asset.downloadUri
+            : `${window.location.origin}${asset.downloadUri}`;
+
+        if (activeToken && !fullDownloadUrl.includes('token=')) {
+            fullDownloadUrl += (fullDownloadUrl.includes('?') ? '&' : '?') + `token=${encodeURIComponent(activeToken)}`;
+        }
+
+        const ext = asset.mimeType.split('/')[1] || 'mp4';
+        const fileName = `${asset.title.replace(/[^a-zA-Z0-9.\-_]/g, '_')}.${ext}`;
+        const binName = asset.projectName || 'MTC DAM Assets';
 
         // Send to parent container (or directly to localhost bridge)
         window.parent.postMessage({
             type: 'IMPORT_TO_RESOLVE',
             id: asset.id,
             downloadUrl: fullDownloadUrl,
-            fileName: `${asset.title}.${asset.mimeType.split('/')[1] || 'mp4'}`,
-            binName: asset.projectName || 'MTC DAM Assets',
+            fileName,
+            binName,
+            token: activeToken,
         }, '*');
 
-        // Direct fetch fallback to local bridge if parent postMessage isn't intercepted
+        // Direct fetch to local bridge
         fetch('http://127.0.0.1:8765', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 downloadUrl: fullDownloadUrl,
-                fileName: `${asset.title}.${asset.mimeType.split('/')[1] || 'mp4'}`,
-                binName: asset.projectName || 'MTC DAM Assets',
+                fileName,
+                binName,
+                token: activeToken,
             })
         })
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                showToast(`✓ Imported into DaVinci Media Pool!`, 'success');
+                showToast(`✓ Imported into DaVinci "${binName}" bin!`, 'success');
+            } else {
+                showToast(`✕ Resolve: ${data.error || 'Import failed'}`, 'error');
             }
         })
         .catch(() => {
-            // Handled by parent message listener
+            showToast(`⚠️ Bridge on 127.0.0.1:8765 not responding. Check DaVinci script console.`, 'error');
         });
     };
 
