@@ -1,0 +1,374 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  role      String   @default("VIEWER")
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects         Project[]
+  assets           Asset[]  @relation("AssetCreator")
+  comments         Comment[]
+  collections      Collection[]
+  savedSearches    SavedSearch[]
+  activities       ActivityLog[]
+  permissionGroups PermissionGroup[]
+  groupMemberships GroupMembership[]
+  externalShares   ExternalShare[]
+  favorites        AssetFavorite[]
+  notifications    Notification[]
+  notificationPreference NotificationPreference?
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  status      String   @default("DRAFT")
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assets      Asset[]
+}
+
+model Asset {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  type        String   // video, image, audio, document
+  mimeType    String
+  size        Float
+  creatorId   String
+  creator     User     @relation("AssetCreator", fields: [creatorId], references: [id])
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
+  status      String   @default("DRAFT") // DRAFT, REVIEW, APPROVED
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  versions          AssetVersion[]
+  comments          Comment[]
+  tags              Tag[]    @relation("AssetToTag")
+  collections       CollectionAsset[]
+  metadata          String?  // Flexible metadata (resolution, duration, target platform etc.)
+  customMetadata    String?
+  watermarkProfileId String?
+  watermarkProfile  WatermarkProfile? @relation(fields: [watermarkProfileId], references: [id])
+  licenseInfoId     String?  @unique
+  licenseInfo       UsageRight?        @relation("AssetUsage", fields: [licenseInfoId], references: [id])
+  fieldValues       CustomFieldValue[]
+  favorites         AssetFavorite[]
+}
+
+model AssetVersion {
+  id           String   @id @default(cuid())
+  assetId      String
+  asset        Asset    @relation(fields: [assetId], references: [id])
+  versionNum   Int
+  nextcloudUri String   // Path in Nextcloud
+  proxyUri     String?  // Path to proxy file in Nextcloud or local
+  createdAt    DateTime @default(now())
+  
+  comments     Comment[]
+
+  @@unique([assetId, versionNum])
+}
+
+model Comment {
+  id             String        @id @default(cuid())
+  content        String
+  timestampFrame Float?        // For video frame-level comments
+  authorId       String
+  author         User          @relation(fields: [authorId], references: [id])
+  assetId        String?
+  asset          Asset?        @relation(fields: [assetId], references: [id])
+  assetVersionId String?
+  assetVersion   AssetVersion? @relation(fields: [assetVersionId], references: [id])
+  createdAt      DateTime      @default(now())
+}
+
+model Tag {
+  id     String  @id @default(cuid())
+  name   String  @unique
+  assets Asset[] @relation("AssetToTag")
+}
+
+model Collection {
+  id                    String   @id @default(cuid())
+  name                  String
+  description           String?
+  ownerId               String
+  owner                 User     @relation(fields: [ownerId], references: [id])
+  parentCollectionId    String?
+  parentCollection      Collection? @relation("CollectionHierarchy", fields: [parentCollectionId], references: [id], onDelete: SetNull)
+  childCollections      Collection[] @relation("CollectionHierarchy")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  assets CollectionAsset[]
+
+  @@unique([ownerId, name])
+}
+
+model CollectionAsset {
+  id           String   @id @default(cuid())
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  assetId      String
+  asset        Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  addedAt      DateTime @default(now())
+
+  @@unique([collectionId, assetId])
+}
+
+model CustomFieldDefinition {
+  id          String   @id @default(cuid())
+  name        String
+  label       String
+  fieldType   String   // text, dropdown, date, multi-select, number, boolean
+  assetTypes  String?  // JSON string with applicable asset types
+  options     String?  // JSON string for dropdown / multi-select options
+  isRequired  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  values      CustomFieldValue[]
+}
+
+model CustomFieldValue {
+  id           String               @id @default(cuid())
+  assetId      String
+  asset        Asset                @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  definitionId String
+  definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+  value        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([assetId, definitionId])
+}
+
+model PermissionGroup {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships GroupMembership[]
+}
+
+model GroupMembership {
+  id        String         @id @default(cuid())
+  groupId   String
+  group     PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String         @default("MEMBER")
+
+  @@unique([groupId, userId])
+}
+
+model AccessPermission {
+  id          String   @id @default(cuid())
+  entityType  String   // ASSET, PROJECT, COLLECTION
+  entityId    String
+  subjectType String   // USER, GROUP, ROLE
+  subjectId   String?  // userId or groupId
+  subjectRole String?  // role name for ROLE subjects
+  accessLevel String   // VIEW, COMMENT, EDIT, DELETE
+  expiresAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ExternalShare {
+  id           String   @id @default(cuid())
+  entityType   String   // ASSET, PROJECT, COLLECTION
+  entityId     String
+  shareToken   String   @unique
+  allowedEmail String?
+  accessLevel  String   // VIEW, DOWNLOAD
+  expiresAt    DateTime?
+  notes        String?
+  createdById  String
+  createdBy    User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+}
+
+model WatermarkProfile {
+  id           String   @id @default(cuid())
+  name         String
+  logoUri      String?
+  textTemplate String?
+  roleLevels   String?  // JSON string with role-based watermark settings
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  assets       Asset[]
+}
+
+model UsageRight {
+  id           String   @id @default(cuid())
+  asset        Asset?   @relation("AssetUsage")
+  licenseName  String
+  licenseType  String
+  grantedTo    String?
+  expiresAt    DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model AutomationRule {
+  id         String   @id @default(cuid())
+  name       String
+  trigger    String   // auto-tag, proxy-generation, cleanup, etc.
+  conditions String?  // JSON string for rules conditions
+  actions    String   // JSON string describing actions
+  schedule   String?  // cron or interval expression
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model WebhookSubscription {
+  id         String   @id @default(cuid())
+  name       String
+  url        String
+  secret     String?
+  events     String   // JSON string for subscribed events
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  assetId    String?
+  userId     String?
+  eventType  String   // VIEW, DOWNLOAD, COMMENT, SEARCH, SHARE
+  metadata   String?
+  createdAt  DateTime @default(now())
+}
+
+model SavedSearch {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  
+  // Search parameters stored as JSON
+  filters     String   // JSON string containing: { searchText?, type?, creator?, tags[], status?, project?, dateFrom?, dateTo? }
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([ownerId, name])
+}
+
+model AssetFavorite {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assetId  String
+  asset    Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  addedAt  DateTime @default(now())
+
+  @@unique([userId, assetId])
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  // Activity details
+  action      String   // CREATE, UPDATE, DELETE, UPLOAD, DOWNLOAD, VIEW, APPROVE, REJECT, COMMENT
+  entityType  String   // ASSET, PROJECT, COLLECTION, COMMENT, USER
+  entityId    String   // ID of the entity being acted upon
+  
+  // Additional context
+  details     String?  // JSON string with additional context (old/new values, metadata, etc.)
+  ipAddress   String?
+  userAgent   String?
+  
+  createdAt   DateTime @default(now())
+  
+  // Indexes for efficient querying
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@index([action, createdAt])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  type        String   // SHARE_ACCESS, SHARE_EXPIRING, APPROVAL_NEEDED, APPROVAL_GRANTED, ASSET_UPLOADED
+  recipientId String
+  recipient   User     @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  
+  subject     String
+  message     String?
+  data        String?  // JSON string with notification data
+  
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([recipientId, createdAt])
+  @@index([recipientId, isRead])
+}
+
+model NotificationPreference {
+  id                        String   @id @default(cuid())
+  userId                    String   @unique
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Notification type preferences
+  shareAccessNotifications  Boolean  @default(true)
+  shareExpiryNotifications  Boolean  @default(true)
+  approvalNotifications     Boolean  @default(true)
+  uploadNotifications       Boolean  @default(true)
+  
+  // Delivery preferences
+  emailNotifications        Boolean  @default(true)
+  digestFrequency           String   @default("DAILY") // IMMEDIATE, HOURLY, DAILY, WEEKLY, NEVER
+  
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+model PermissionTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  
+  // Template rules defined as JSON
+  // Structure: [{ subjectType: 'USER'|'GROUP'|'ROLE', subjectId?: String, accessLevel: 'VIEW'|'COMMENT'|'EDIT'|'DELETE', expiryDays?: Number }]
+  rules       String   // JSON array of template rules
+  
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Track which entities this template has been applied to
+  appliedCount Int @default(0)
+}

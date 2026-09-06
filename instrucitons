@@ -1,0 +1,11 @@
+# 1. Install dependencies
+npm install
+
+# 2. Run DB migration (SQLite via .env.local)
+npx prisma migrate dev --name init
+
+# 3. Seed the admin account
+node seed-admin.mjs
+
+# 4. Start dev server
+npm run dev
