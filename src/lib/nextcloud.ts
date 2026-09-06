@@ -202,6 +202,36 @@ export async function uploadAsset(filePath: string, buffer: Buffer): Promise<boo
     }
 }
 
+// Stream large files directly from disk to storage without holding the entire file in RAM
+export async function uploadAssetFromPath(remotePath: string, localFilePath: string): Promise<boolean> {
+    try {
+        const { client } = await getNextcloudClient();
+        if (client) {
+            await ensureRemoteDir(client, remotePath);
+            const stream = fs.createReadStream(localFilePath);
+            await client.putFileContents(remotePath, stream, { overwrite: true });
+            console.log(`[Nextcloud WebDAV] Successfully streamed ${localFilePath} to ${remotePath}`);
+            return true;
+        } else {
+            console.warn('[Nextcloud WebDAV] Client not configured, streaming to local storage fallback');
+        }
+    } catch (error: any) {
+        console.warn(`[Nextcloud WebDAV] Stream to ${remotePath} failed, falling back to local storage:`, error?.message || error);
+    }
+
+    // Local storage fallback via fast disk copy
+    try {
+        const destPath = getLocalPath(remotePath);
+        await ensureLocalDir(destPath);
+        await fs.promises.copyFile(localFilePath, destPath);
+        console.log(`[Local Fallback] Copied ${localFilePath} to ${destPath}`);
+        return true;
+    } catch (localErr: any) {
+        console.error(`[Storage] Failed to copy to local storage:`, localErr);
+        throw new Error(`Failed to save file to storage: ${localErr?.message}`);
+    }
+}
+
 export async function readAssetFile(filePath: string): Promise<Buffer | null> {
     try {
         const { client } = await getNextcloudClient();

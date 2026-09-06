@@ -104,7 +104,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         try {
             await prisma.analyticsEvent.create({
                 data: {
-                    userId: auth.userId,
+                    userId,
                     assetId: id,
                     eventType: 'DOWNLOAD',
                     metadata: JSON.stringify({
@@ -119,7 +119,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
         // Log activity
         await logActivity(
-            auth.userId,
+            userId,
             'DOWNLOAD',
             'ASSET',
             id,

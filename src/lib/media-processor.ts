@@ -80,6 +80,77 @@ export async function extractVideoMetadata(buffer: Buffer): Promise<Record<strin
     }
 }
 
+export async function extractVideoMetadataFromPath(filePath: string): Promise<Record<string, unknown> | null> {
+    try {
+        return await new Promise<Record<string, unknown> | null>((resolve) => {
+            const timer = setTimeout(() => resolve(null), 8000);
+            try {
+                ffmpeg.ffprobe(filePath, (err, metadata) => {
+                    clearTimeout(timer);
+                    if (err) {
+                        console.warn('FFmpeg ffprobe failed (non-blocking):', err?.message || err);
+                        resolve(null);
+                    } else {
+                        const videoStream = metadata?.streams?.find(s => s.codec_type === 'video');
+                        resolve({
+                            duration: metadata?.format?.duration,
+                            width: videoStream?.width,
+                            height: videoStream?.height,
+                            codec: videoStream?.codec_name,
+                            bitrate: metadata?.format?.bit_rate
+                        });
+                    }
+                });
+            } catch {
+                clearTimeout(timer);
+                resolve(null);
+            }
+        });
+    } catch {
+        return null;
+    }
+}
+
+export async function generateVideoThumbnailFromPath(filePath: string): Promise<Buffer | null> {
+    const timestamp = Date.now();
+    const tempOutputPath = path.join(os.tmpdir(), `temp_vid_thumb_${timestamp}.jpg`);
+
+    return await new Promise<Buffer | null>((resolve) => {
+        const timer = setTimeout(() => {
+            try { if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath); } catch {}
+            resolve(null);
+        }, 8000);
+
+        try {
+            ffmpeg(filePath)
+                .seekInput(1.0)
+                .frames(1)
+                .size('640x360')
+                .output(tempOutputPath)
+                .on('end', async () => {
+                    clearTimeout(timer);
+                    try {
+                        const thumbBuffer = await fs.promises.readFile(tempOutputPath);
+                        try { if (fs.existsSync(tempOutputPath)) await fs.promises.unlink(tempOutputPath); } catch {}
+                        resolve(thumbBuffer);
+                    } catch {
+                        resolve(null);
+                    }
+                })
+                .on('error', (err) => {
+                    clearTimeout(timer);
+                    console.warn('FFmpeg video thumbnail extraction failed (non-blocking):', err?.message || err);
+                    try { if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath); } catch {}
+                    resolve(null);
+                })
+                .run();
+        } catch {
+            clearTimeout(timer);
+            resolve(null);
+        }
+    });
+}
+
 // Fast 1-frame video thumbnail extraction (<0.5s) for instant previews
 export async function generateVideoThumbnail(buffer: Buffer): Promise<Buffer | null> {
     const timestamp = Date.now();

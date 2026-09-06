@@ -106,68 +106,86 @@ export default function UploadModal({ isOpen, onClose, userId, onSuccess }: Uplo
             // Mark as uploading
             setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, status: 'uploading', progress: 5, error: undefined } : f));
 
-            const formData = new FormData();
-            formData.append('file', item.file);
-            formData.append('title', item.title.trim() || item.file.name);
-            formData.append('creatorId', userId || user?.id || '');
-            if (selectedProjectId) {
-                formData.append('projectId', selectedProjectId);
-            }
-            if (batchTags.trim()) {
-                formData.append('tags', batchTags.trim());
-            }
+            const CHUNK_SIZE = 5 * 1024 * 1024; // 5 MB per slice to prevent reverse proxy 502 timeouts and memory limits
+            const totalChunks = Math.max(1, Math.ceil(item.file.size / CHUNK_SIZE));
+            const uploadId = `upl_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
             try {
-                await new Promise<void>((resolve, reject) => {
-                    const xhr = new XMLHttpRequest();
-                    xhr.open('POST', '/api/upload');
+                // Upload chunk by chunk
+                for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+                    const start = chunkIndex * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, item.file.size);
+                    const chunkBlob = item.file.slice(start, end);
 
-                    xhr.upload.onprogress = (event) => {
-                        if (event.lengthComputable && event.total > 0) {
-                            // 0% to 90% during client-to-server transfer
-                            const percent = Math.min(90, Math.round((event.loaded / event.total) * 90));
-                            setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, progress: percent } : f));
+                    const chunkFormData = new FormData();
+                    chunkFormData.append('chunk', chunkBlob, item.file.name);
+                    chunkFormData.append('uploadId', uploadId);
+                    chunkFormData.append('chunkIndex', chunkIndex.toString());
+                    chunkFormData.append('totalChunks', totalChunks.toString());
+                    chunkFormData.append('fileName', item.file.name);
+                    chunkFormData.append('fileSize', item.file.size.toString());
+                    chunkFormData.append('title', item.title.trim() || item.file.name);
+                    chunkFormData.append('creatorId', userId || user?.id || '');
+                    if (selectedProjectId) chunkFormData.append('projectId', selectedProjectId);
+                    if (batchTags.trim()) chunkFormData.append('tags', batchTags.trim());
+
+                    // Retry up to 3 times per chunk in case of transient network hiccups
+                    let chunkUploaded = false;
+                    let lastErrorMsg = 'Chunk upload failed';
+
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        try {
+                            await new Promise<void>((resolve, reject) => {
+                                const xhr = new XMLHttpRequest();
+                                xhr.open('POST', '/api/upload/chunk');
+
+                                xhr.upload.onprogress = (event) => {
+                                    if (event.lengthComputable && event.total > 0) {
+                                        const chunkFraction = event.loaded / event.total;
+                                        const overallFilePercent = Math.min(96, Math.round(((chunkIndex + chunkFraction) / totalChunks) * 96));
+                                        setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, progress: Math.max(f.progress, overallFilePercent) } : f));
+                                    }
+                                };
+
+                                xhr.onload = () => {
+                                    if (xhr.status >= 200 && xhr.status < 300) {
+                                        const currentProgress = Math.min(96, Math.round(((chunkIndex + 1) / totalChunks) * 96));
+                                        setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, progress: currentProgress } : f));
+                                        resolve();
+                                    } else {
+                                        let errorMsg = `Upload failed (${xhr.status})`;
+                                        try {
+                                            const parsed = JSON.parse(xhr.responseText);
+                                            if (parsed.error) errorMsg = parsed.error;
+                                        } catch {
+                                            if (xhr.status === 502) errorMsg = 'Bad Gateway (502) - Proxy timeout';
+                                            else if (xhr.status === 413) errorMsg = 'Payload too large (413)';
+                                        }
+                                        reject(new Error(errorMsg));
+                                    }
+                                };
+
+                                xhr.onerror = () => reject(new Error('Network connection error during chunk transfer'));
+                                xhr.ontimeout = () => reject(new Error('Chunk upload timed out'));
+                                xhr.send(chunkFormData);
+                            });
+
+                            chunkUploaded = true;
+                            break;
+                        } catch (err: any) {
+                            lastErrorMsg = err.message || 'Chunk upload failed';
+                            // Short backoff before retrying this chunk
+                            await new Promise(r => setTimeout(r, 1200));
                         }
-                    };
+                    }
 
-                    xhr.upload.onload = () => {
-                        // File payload sent to server, waiting for Nextcloud ingestion
-                        setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, progress: 95 } : f));
-                    };
+                    if (!chunkUploaded) {
+                        throw new Error(lastErrorMsg);
+                    }
+                }
 
-                    xhr.onload = () => {
-                        if (xhr.status >= 200 && xhr.status < 300) {
-                            setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, status: 'completed', progress: 100 } : f));
-                            resolve();
-                        } else {
-                            let errorMsg = `Upload failed (${xhr.status})`;
-                            try {
-                                const parsed = JSON.parse(xhr.responseText);
-                                if (parsed.error) errorMsg = parsed.error;
-                            } catch {
-                                if (xhr.status === 504) {
-                                    errorMsg = 'Server gateway timed out (504)';
-                                } else if (xhr.status === 413) {
-                                    errorMsg = 'File exceeds upload size limit (413)';
-                                } else if (xhr.statusText) {
-                                    errorMsg = `${xhr.statusText} (${xhr.status})`;
-                                }
-                            }
-                            reject(new Error(errorMsg));
-                        }
-                    };
-
-                    xhr.onerror = () => {
-                        reject(new Error('Network error during upload'));
-                    };
-
-                    xhr.ontimeout = () => {
-                        reject(new Error('Upload timed out'));
-                    };
-
-                    xhr.send(formData);
-                });
-
+                // File fully assembled and registered in DAM
+                setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, status: 'completed', progress: 100 } : f));
                 completedCount++;
             } catch (err: any) {
                 setFileQueue(prev => prev.map(f => f.id === item.id ? { ...f, status: 'error', error: err.message || 'Upload failed' } : f));
