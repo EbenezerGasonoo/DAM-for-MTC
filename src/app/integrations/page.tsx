@@ -213,20 +213,28 @@ export default function IntegrationsPage() {
                     {/* Download & Links */}
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         <a
+                            href="/extensions/MTC_Premiere_Extension.zip"
+                            download="MTC_Premiere_Extension.zip"
+                            className="btn btn-primary"
+                            style={{ width: '100%', padding: '10px 14px', fontSize: '0.86rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                        >
+                            📦 Download Full Premiere Extension (.zip)
+                        </a>
+                        <a
                             href="/extensions/premiere/install_windows.bat"
                             download="MTC_Premiere_Installer.bat"
-                            className="btn btn-primary"
-                            style={{ flex: 1, padding: '9px 14px', fontSize: '0.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            className="btn btn-secondary"
+                            style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                         >
-                            ⬇ Download Windows Installer (.bat)
+                            ⬇ Windows Script (.bat)
                         </a>
                         <a
                             href="/extensions/premiere/install_mac.sh"
                             download="MTC_Premiere_Installer.sh"
                             className="btn btn-secondary"
-                            style={{ flex: 1, padding: '9px 14px', fontSize: '0.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                         >
-                            ⬇ Download Mac Installer (.sh)
+                            ⬇ Mac Script (.sh)
                         </a>
                     </div>
                 </div>
@@ -278,7 +286,7 @@ export default function IntegrationsPage() {
                                 Installation Instructions:
                             </h4>
                             <ol style={{ fontSize: '0.8rem', color: 'var(--text-muted)', paddingLeft: '18px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <li>Download the <strong>MTC DaVinci Resolve Package</strong>.</li>
+                                <li>Download the <strong>MTC DaVinci Resolve Package</strong> (or standalone installer).</li>
                                 <li>Run <code>install_windows.bat</code> (or <code>install_mac.sh</code>).</li>
                                 <li>Studio: <code>Workspace -&gt; Workflow Integrations -&gt; MTC DAM Media Hub</code>.</li>
                                 <li>Free/Studio Script: <code>Workspace -&gt; Scripts -&gt; MTC_DAM_Importer</code>.</li>
@@ -289,20 +297,28 @@ export default function IntegrationsPage() {
                     {/* Download & Links */}
                     <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                         <a
+                            href="/extensions/MTC_Resolve_Integration.zip"
+                            download="MTC_Resolve_Integration.zip"
+                            className="btn btn-primary"
+                            style={{ width: '100%', padding: '10px 14px', fontSize: '0.86rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                        >
+                            📦 Download Full DaVinci Package (.zip)
+                        </a>
+                        <a
                             href="/extensions/resolve/install_windows.bat"
                             download="MTC_Resolve_Installer.bat"
-                            className="btn btn-primary"
-                            style={{ flex: 1, padding: '9px 14px', fontSize: '0.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            className="btn btn-secondary"
+                            style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                         >
-                            ⬇ Download Windows Installer (.bat)
+                            ⬇ Windows Script (.bat)
                         </a>
                         <a
                             href="/extensions/resolve/install_mac.sh"
                             download="MTC_Resolve_Installer.sh"
                             className="btn btn-secondary"
-                            style={{ flex: 1, padding: '9px 14px', fontSize: '0.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+                            style={{ flex: 1, padding: '8px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                         >
-                            ⬇ Download Mac Installer (.sh)
+                            ⬇ Mac Script (.sh)
                         </a>
                     </div>
                 </div>
