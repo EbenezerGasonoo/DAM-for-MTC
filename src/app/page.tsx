@@ -1,25 +1,43 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import UploadModal from '@/components/UploadModal';
+import { AssetPreviewModal, AssetDetail } from '@/components/AssetPreviewModal';
 import { MtcLogoIcon } from '@/components/MtcLogo';
 
-const statCards = [
-  { label: 'Total Assets', value: '1,247', change: '+12%', color: 'var(--mtc-cornsilk)' },
-  { label: 'Active Projects', value: '8', change: '+2', color: 'var(--mtc-hunter-green)' },
-  { label: 'In Review', value: '23', change: '-5', color: 'var(--warning-color)' },
-  { label: 'Published', value: '892', change: '+34', color: 'var(--mtc-platinum)' },
-];
+interface DashboardStats {
+  totalAssets: number;
+  activeProjects: number;
+  inReviewAssets: number;
+  publishedAssets: number;
+}
 
-const recentAssets = [
-  { name: 'Sunday_Service_Main_Camera.mp4', type: 'video', size: '2.4 GB', time: '2 hours ago', status: 'DRAFT' },
-  { name: 'Youth_Retreat_Banner.psd', type: 'image', size: '145 MB', time: '5 hours ago', status: 'REVIEW' },
-  { name: 'Podcast_Episode_42.wav', type: 'audio', size: '890 MB', time: '1 day ago', status: 'APPROVED' },
-  { name: 'Social_Reel_March.mp4', type: 'video', size: '320 MB', time: '1 day ago', status: 'EDITING' },
-  { name: 'Mountain_Top_Logo_Vector.svg', type: 'image', size: '2.1 MB', time: '3 days ago', status: 'PUBLISHED' },
-];
+interface DashboardData {
+  stats: DashboardStats;
+  recentAssets: AssetDetail[];
+  storage: {
+    totalBytes: number;
+    typeSizes: Record<string, number>;
+    nextcloud: {
+      connected: boolean;
+      used?: number;
+      available?: number;
+      error?: string;
+    };
+  };
+  recentActivities: Array<{
+    id: string;
+    action: string;
+    entityType: string;
+    entityId: string;
+    details?: string;
+    createdAt: string;
+    user?: { name: string };
+  }>;
+}
 
 const statusColors: Record<string, string> = {
   DRAFT: 'var(--text-muted)',
@@ -36,8 +54,66 @@ const typeIcons: Record<string, string> = {
   document: '📄',
 };
 
+function formatBytes(bytes: number): string {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function timeAgo(dateString: string): string {
+  const diff = Date.now() - new Date(dateString).getTime();
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 export default function DashboardPage() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<AssetDetail | null>(null);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchDashboardData = async () => {
+    try {
+      const res = await fetch('/api/dashboard');
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard metrics:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  const stats = data?.stats || {
+    totalAssets: 0,
+    activeProjects: 0,
+    inReviewAssets: 0,
+    publishedAssets: 0,
+  };
+
+  const statCards = [
+    { label: 'Total Assets', value: stats.totalAssets.toLocaleString(), change: stats.totalAssets > 0 ? 'Live in DB' : 'Empty', color: 'var(--mtc-cornsilk)' },
+    { label: 'Active Projects', value: stats.activeProjects.toLocaleString(), change: 'Pipelines', color: 'var(--mtc-hunter-green)' },
+    { label: 'In Review', value: stats.inReviewAssets.toLocaleString(), change: 'Pending approval', color: 'var(--warning-color)' },
+    { label: 'Approved / Ready', value: stats.publishedAssets.toLocaleString(), change: 'Broadcast ready', color: 'var(--mtc-platinum)' },
+  ];
+
+  const recentAssets = data?.recentAssets || [];
+  const storage = data?.storage;
+  const isNcConnected = storage?.nextcloud?.connected;
 
   return (
     <Sidebar>
@@ -121,7 +197,7 @@ export default function DashboardPage() {
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
                 <span style={{ fontSize: '1.9rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
-                  {stat.value}
+                  {loading ? '...' : stat.value}
                 </span>
                 <span style={{ fontSize: '0.82rem', color: stat.color, fontWeight: 600, fontFamily: 'var(--font-brand)' }}>
                   {stat.change}
@@ -134,72 +210,7 @@ export default function DashboardPage() {
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
           {/* Recent Assets */}
           <div className="card">
-            <h3 style={{
-              fontSize: '0.82rem',
-              fontFamily: 'var(--font-brand)',
-              color: 'var(--mtc-cornsilk)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              fontWeight: 700,
-              marginBottom: '20px',
-            }}>
-              Recent Studio Assets
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              {recentAssets.map((asset) => (
-                <div
-                  key={asset.name}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    padding: '12px 10px',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--panel-hover)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-                >
-                  <span style={{ fontSize: '1.3rem' }}>{typeIcons[asset.type] || '📄'}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontWeight: 500,
-                      fontSize: '0.9rem',
-                      fontFamily: 'var(--font-brand)',
-                      color: 'var(--mtc-cornsilk)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}>
-                      {asset.name}
-                    </div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                      {asset.size} · {asset.time}
-                    </div>
-                  </div>
-                  <span style={{
-                    fontSize: '0.72rem',
-                    fontWeight: 600,
-                    fontFamily: 'var(--font-brand)',
-                    letterSpacing: '0.04em',
-                    color: statusColors[asset.status],
-                    backgroundColor: 'rgba(29, 39, 41, 0.9)',
-                    border: `1px solid ${statusColors[asset.status]}40`,
-                    padding: '3px 10px',
-                    borderRadius: '12px',
-                  }}>
-                    {asset.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Right Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* Storage */}
-            <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h3 style={{
                 fontSize: '0.82rem',
                 fontFamily: 'var(--font-brand)',
@@ -207,27 +218,144 @@ export default function DashboardPage() {
                 textTransform: 'uppercase',
                 letterSpacing: '0.08em',
                 fontWeight: 700,
-                marginBottom: '16px',
+                margin: 0,
               }}>
-                Storage Allocation
+                Recent Studio Assets
               </h3>
-              <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 500 }}>2.4 TB used</span>
-                <span style={{ color: 'var(--text-muted)' }}>10 TB Total</span>
+              <Link href="/assets" style={{ fontSize: '0.78rem', color: 'var(--mtc-cornsilk)', textDecoration: 'none', opacity: 0.8 }}>
+                View All Assets →
+              </Link>
+            </div>
+
+            {loading ? (
+              <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                Loading live assets...
               </div>
+            ) : recentAssets.length === 0 ? (
+              <div style={{
+                padding: '48px 24px',
+                textAlign: 'center',
+                backgroundColor: 'rgba(20, 28, 30, 0.5)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px dashed var(--border-color)'
+              }}>
+                <div style={{ fontSize: '2rem', marginBottom: '10px' }}>📦</div>
+                <h4 style={{ fontSize: '1rem', color: 'var(--mtc-cornsilk)', fontWeight: 600, marginBottom: '6px' }}>
+                  No Assets Uploaded Yet
+                </h4>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 16px auto' }}>
+                  Your workspace is clean. Upload media files (video, image, audio, stems) to store them directly in your Nextcloud storage!
+                </p>
+                <button className="btn btn-primary" onClick={() => setIsUploadOpen(true)} style={{ fontSize: '0.84rem' }}>
+                  + Upload Your First Asset
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {recentAssets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    onClick={() => setSelectedAsset(asset)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      padding: '12px 10px',
+                      borderRadius: 'var(--radius-sm)',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--panel-hover)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <span style={{ fontSize: '1.3rem' }}>{typeIcons[asset.type] || '📄'}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontWeight: 500,
+                        fontSize: '0.9rem',
+                        fontFamily: 'var(--font-brand)',
+                        color: 'var(--mtc-cornsilk)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {asset.title}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        {formatBytes(asset.size)} · {timeAgo(asset.createdAt)} · {asset.creator?.name || 'Studio'}
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      fontFamily: 'var(--font-brand)',
+                      letterSpacing: '0.04em',
+                      color: statusColors[asset.status] || 'var(--text-muted)',
+                      backgroundColor: 'rgba(29, 39, 41, 0.9)',
+                      border: `1px solid ${statusColors[asset.status] || 'rgba(255,255,255,0.2)'}40`,
+                      padding: '3px 10px',
+                      borderRadius: '12px',
+                    }}>
+                      {asset.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Right Column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            {/* Storage Allocation */}
+            <div className="card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <h3 style={{
+                  fontSize: '0.82rem',
+                  fontFamily: 'var(--font-brand)',
+                  color: 'var(--mtc-cornsilk)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  fontWeight: 700,
+                  margin: 0,
+                }}>
+                  Storage Allocation
+                </h3>
+                <Link href="/settings" style={{ fontSize: '0.72rem', color: isNcConnected ? '#A7F3D0' : 'var(--text-dim)', textDecoration: 'none' }}>
+                  {isNcConnected ? '☁️ Nextcloud' : '💾 Local Fallback'}
+                </Link>
+              </div>
+
+              <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 500 }}>
+                  {isNcConnected && storage?.nextcloud?.used !== undefined
+                    ? `${formatBytes(storage.nextcloud.used)} used`
+                    : `${formatBytes(storage?.totalBytes || 0)} used`}
+                </span>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {isNcConnected && storage?.nextcloud?.available !== undefined
+                    ? `${formatBytes((storage.nextcloud.used || 0) + storage.nextcloud.available)} Total`
+                    : 'Unlimited (Local)'}
+                </span>
+              </div>
+
               <div style={{ width: '100%', height: '9px', backgroundColor: 'rgba(202, 222, 223, 0.1)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }}>
                 <div style={{
-                  width: '24%',
+                  width: isNcConnected && storage?.nextcloud?.available && storage.nextcloud.available > 0
+                    ? `${Math.min(100, Math.max(5, ((storage.nextcloud.used || 0) / ((storage.nextcloud.used || 0) + storage.nextcloud.available)) * 100))}%`
+                    : storage?.totalBytes && storage.totalBytes > 0 ? '15%' : '0%',
                   height: '100%',
-                  background: 'linear-gradient(90deg, var(--mtc-hunter-green), var(--mtc-cornsilk))',
+                  background: isNcConnected
+                    ? 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80)'
+                    : 'linear-gradient(90deg, var(--mtc-hunter-green), var(--mtc-cornsilk))',
                   borderRadius: '6px',
                 }}></div>
               </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', fontSize: '0.8rem' }}>
-                <div><span style={{ color: 'var(--text-muted)' }}>Videos:</span> 1.8 TB</div>
-                <div><span style={{ color: 'var(--text-muted)' }}>Images:</span> 320 GB</div>
-                <div><span style={{ color: 'var(--text-muted)' }}>Audio:</span> 180 GB</div>
-                <div><span style={{ color: 'var(--text-muted)' }}>Docs:</span> 100 GB</div>
+                <div><span style={{ color: 'var(--text-muted)' }}>Videos:</span> {formatBytes(storage?.typeSizes?.video || 0)}</div>
+                <div><span style={{ color: 'var(--text-muted)' }}>Images:</span> {formatBytes(storage?.typeSizes?.image || 0)}</div>
+                <div><span style={{ color: 'var(--text-muted)' }}>Audio:</span> {formatBytes(storage?.typeSizes?.audio || 0)}</div>
+                <div><span style={{ color: 'var(--text-muted)' }}>Docs:</span> {formatBytes(storage?.typeSizes?.document || 0)}</div>
               </div>
             </div>
 
@@ -244,28 +372,43 @@ export default function DashboardPage() {
               }}>
                 Pipeline Activity
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {[
-                  { action: 'John approved', asset: 'Easter_Promo.mp4', time: '10m ago' },
-                  { action: 'Sarah uploaded', asset: 'MTC_Brand_v3.ai', time: '1h ago' },
-                  { action: 'Mike commented', asset: 'Podcast_Ep42.wav', time: '2h ago' },
-                ].map((activity, i) => (
-                  <div key={i} style={{ display: 'flex', gap: '10px', fontSize: '0.8rem', paddingBottom: '12px', borderBottom: i < 2 ? '1px solid var(--border-color)' : 'none' }}>
-                    <div style={{ width: '7px', height: '7px', borderRadius: '50%', backgroundColor: 'var(--mtc-hunter-green)', marginTop: '6px', flexShrink: 0 }}></div>
-                    <div>
-                      <span style={{ fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>{activity.action}</span>{' '}
-                      <span style={{ color: 'var(--mtc-platinum)' }}>{activity.asset}</span>
-                      <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', marginTop: '2px' }}>{activity.time}</div>
+              {data?.recentActivities && data.recentActivities.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {data.recentActivities.map((act) => (
+                    <div key={act.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
+                      <span style={{ color: 'var(--mtc-cornsilk)' }}>
+                        <strong>{act.user?.name || 'User'}</strong> {act.action.toLowerCase()}d {act.entityType.toLowerCase()}
+                      </span>
+                      <span style={{ color: 'var(--text-dim)', fontSize: '0.72rem' }}>{timeAgo(act.createdAt)}</span>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ color: 'var(--text-dim)', fontSize: '0.8rem', textAlign: 'center', padding: '16px 0' }}>
+                  No pipeline activity recorded yet.
+                </div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <UploadModal isOpen={isUploadOpen} onClose={() => setIsUploadOpen(false)} userId="demo-user-id" />
+      <UploadModal
+        isOpen={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onSuccess={() => {
+          fetchDashboardData();
+        }}
+      />
+
+      <AssetPreviewModal
+        isOpen={Boolean(selectedAsset)}
+        onClose={() => setSelectedAsset(null)}
+        asset={selectedAsset}
+        onAssetUpdated={() => {
+          fetchDashboardData();
+        }}
+      />
     </Sidebar>
   );
 }
