@@ -9,21 +9,37 @@ export default function IntegrationsPage() {
     const [isGeneratingToken, setIsGeneratingToken] = useState(false);
     const [copiedToken, setCopiedToken] = useState(false);
     const [copiedScript, setCopiedScript] = useState<string | null>(null);
+    const [tokenError, setTokenError] = useState<string | null>(null);
+
+    // Auto-load token from localStorage if available
+    React.useEffect(() => {
+        try {
+            const saved = localStorage.getItem('mtc_dam_nle_token');
+            if (saved) setNleToken(saved);
+        } catch { }
+    }, []);
 
     const handleGenerateToken = async () => {
         setIsGeneratingToken(true);
+        setTokenError(null);
         try {
             const res = await fetch('/api/nle/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'generate' }),
+                body: JSON.stringify({ action: 'generate', userId: user?.id }),
             });
-            if (res.ok) {
-                const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.token) {
                 setNleToken(data.token);
+                try {
+                    localStorage.setItem('mtc_dam_nle_token', data.token);
+                } catch { }
+            } else {
+                setTokenError(data.error || `Server returned error (${res.status})`);
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to generate NLE token:', err);
+            setTokenError(err?.message || 'Network error while generating token.');
         } finally {
             setIsGeneratingToken(false);
         }
@@ -77,7 +93,7 @@ export default function IntegrationsPage() {
                     </p>
                 </div>
                 <a
-                    href="/integrations/nle"
+                    href={nleToken ? `/integrations/nle?token=${encodeURIComponent(nleToken)}` : '/integrations/nle'}
                     target="_blank"
                     rel="noreferrer"
                     className="btn btn-primary"
@@ -108,43 +124,74 @@ export default function IntegrationsPage() {
                         onClick={handleGenerateToken}
                         disabled={isGeneratingToken}
                         className="btn btn-secondary"
-                        style={{ padding: '8px 16px', fontSize: '0.84rem' }}
+                        style={{ padding: '8px 16px', fontSize: '0.84rem', minWidth: '140px' }}
                     >
                         {isGeneratingToken ? 'Generating...' : nleToken ? 'Regenerate Token' : 'Generate Token'}
                     </button>
                 </div>
 
-                {nleToken ? (
+                {tokenError && (
                     <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        backgroundColor: 'var(--bg-color)',
                         padding: '10px 14px',
+                        marginBottom: '12px',
+                        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                        border: '1px solid rgba(239, 68, 68, 0.4)',
                         borderRadius: '6px',
-                        border: '1px solid var(--border-color)'
+                        fontSize: '0.84rem',
+                        color: '#FCA5A5'
                     }}>
-                        <input
-                            type="text"
-                            readOnly
-                            value={nleToken}
-                            style={{
-                                flex: 1,
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--mtc-cornsilk)',
-                                fontFamily: 'monospace',
-                                fontSize: '0.82rem',
-                                outline: 'none'
-                            }}
-                        />
-                        <button
-                            onClick={() => copyToClipboard(nleToken, 'token')}
-                            className="btn btn-secondary"
-                            style={{ padding: '4px 12px', fontSize: '0.78rem' }}
-                        >
-                            {copiedToken ? '✓ Copied!' : 'Copy Token'}
-                        </button>
+                        ⚠️ {tokenError}
+                    </div>
+                )}
+
+                {nleToken ? (
+                    <div>
+                        <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            backgroundColor: 'var(--bg-color)',
+                            padding: '10px 14px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-color)',
+                            marginBottom: '10px'
+                        }}>
+                            <input
+                                type="text"
+                                readOnly
+                                value={nleToken}
+                                style={{
+                                    flex: 1,
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: 'var(--mtc-cornsilk)',
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.82rem',
+                                    outline: 'none'
+                                }}
+                            />
+                            <button
+                                onClick={() => copyToClipboard(nleToken, 'token')}
+                                className="btn btn-secondary"
+                                style={{ padding: '4px 12px', fontSize: '0.78rem' }}
+                            >
+                                {copiedToken ? '✓ Copied!' : 'Copy Token'}
+                            </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                            <span style={{ fontSize: '0.78rem', color: '#86EFAC' }}>
+                                ✓ Active Key Ready
+                            </span>
+                            <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>•</span>
+                            <a
+                                href={`/integrations/nle?token=${encodeURIComponent(nleToken)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{ fontSize: '0.78rem', color: 'var(--mtc-cornsilk)', textDecoration: 'underline' }}
+                            >
+                                Open NLE Panel with this Token ↗
+                            </a>
+                        </div>
                     </div>
                 ) : (
                     <div style={{ fontSize: '0.82rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
