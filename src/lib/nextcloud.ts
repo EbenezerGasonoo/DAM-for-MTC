@@ -83,7 +83,9 @@ export function createNextcloudClientInstance(url: string, username: string, pas
     return createClient(webdavUrl, {
         authType: AuthType.Password,
         username: username.trim(),
-        password: password.trim()
+        password: password.trim(),
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
     });
 }
 
@@ -112,7 +114,9 @@ export const nextcloudClient = createClient(
     {
         authType: AuthType.Password,
         username: process.env.NEXTCLOUD_USERNAME || '',
-        password: process.env.NEXTCLOUD_PASSWORD || ''
+        password: process.env.NEXTCLOUD_PASSWORD || '',
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity
     }
 );
 
@@ -173,18 +177,29 @@ export async function uploadAsset(filePath: string, buffer: Buffer): Promise<boo
         const { client } = await getNextcloudClient();
         if (client) {
             await ensureRemoteDir(client, filePath);
-            await client.putFileContents(filePath, buffer, { overwrite: true });
+            await client.putFileContents(filePath, buffer, {
+                overwrite: true
+            });
+            console.log(`[Nextcloud WebDAV] Successfully uploaded ${filePath} (${buffer.length} bytes)`);
             return true;
+        } else {
+            console.warn('[Nextcloud WebDAV] Client not configured, using local storage fallback');
         }
-    } catch (error) {
-        console.warn('Nextcloud upload failed, falling back to local storage:', error);
+    } catch (error: any) {
+        console.warn(`[Nextcloud WebDAV] Upload to ${filePath} failed, falling back to local storage:`, error?.message || error);
     }
 
     // Local storage fallback
-    const localPath = getLocalPath(filePath);
-    await ensureLocalDir(localPath);
-    await fs.promises.writeFile(localPath, buffer);
-    return true;
+    try {
+        const localPath = getLocalPath(filePath);
+        await ensureLocalDir(localPath);
+        await fs.promises.writeFile(localPath, buffer);
+        console.log(`[Local Fallback] Saved ${filePath} (${buffer.length} bytes)`);
+        return true;
+    } catch (localErr: any) {
+        console.error(`[Storage] Failed to save ${filePath} to local storage:`, localErr);
+        throw new Error(`Failed to save file to both Nextcloud and local fallback: ${localErr?.message}`);
+    }
 }
 
 export async function readAssetFile(filePath: string): Promise<Buffer | null> {

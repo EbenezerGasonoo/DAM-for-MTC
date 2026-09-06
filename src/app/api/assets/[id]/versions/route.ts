@@ -5,12 +5,15 @@ import {
     extractImageMetadata, 
     generateImageThumbnail, 
     extractVideoMetadata,
-    generateVideoProxy,
+    generateVideoThumbnail,
     extractAudioMetadata,
     generateAudioWaveform
 } from '@/lib/media-processor';
 import { logActivity } from '@/lib/activity';
 import { getAuthFromCookies } from '@/lib/auth';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 // GET /api/assets/[id]/versions — Get version history
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -101,12 +104,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
                 proxyUri = thumbPath;
             }
         } else if (mimeType.startsWith('video/')) {
-            metadata = (await extractVideoMetadata(buffer)) || {};
-            const proxyBuffer = await generateVideoProxy(buffer);
-            if (proxyBuffer) {
-                const proxyPath = `/mtc-dam-proxies/${id}/v${nextVersionNum}_proxy_${timestamp}.mp4`;
-                await uploadAsset(proxyPath, proxyBuffer);
-                proxyUri = proxyPath;
+            try {
+                metadata = (await extractVideoMetadata(buffer)) || {};
+            } catch (metaErr) {
+                console.warn('Video metadata error (non-blocking):', metaErr);
+            }
+            try {
+                const thumbBuffer = await generateVideoThumbnail(buffer);
+                if (thumbBuffer) {
+                    const thumbPath = `/mtc-dam-proxies/${id}/v${nextVersionNum}_thumb_${timestamp}.jpg`;
+                    await uploadAsset(thumbPath, thumbBuffer);
+                    proxyUri = thumbPath;
+                }
+            } catch (thumbErr) {
+                console.warn('Video poster thumb error (non-blocking):', thumbErr);
+            }
+            if (!proxyUri) {
+                proxyUri = nextcloudPath;
             }
         } else if (mimeType.startsWith('audio/')) {
             metadata = (await extractAudioMetadata(buffer)) || {};
