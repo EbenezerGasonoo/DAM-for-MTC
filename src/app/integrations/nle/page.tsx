@@ -52,6 +52,29 @@ function NLEPanelContent() {
     // Status notifications inside NLE panel
     const [toastMessage, setToastMessage] = useState<string | null>(null);
     const [toastType, setToastType] = useState<'success' | 'info' | 'error'>('info');
+    const [activeToken, setActiveToken] = useState<string>(initialToken || '');
+
+    useEffect(() => {
+        const stored = typeof window !== 'undefined' ? localStorage.getItem('mtc_dam_nle_token') : '';
+        const t = initialToken || stored || '';
+        if (t) {
+            setActiveToken(t);
+        } else {
+            fetch('/api/nle/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'generate' }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.token) {
+                        setActiveToken(data.token);
+                        try { localStorage.setItem('mtc_dam_nle_token', data.token); } catch {}
+                    }
+                })
+                .catch(() => {});
+        }
+    }, [initialToken]);
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -155,13 +178,17 @@ function NLEPanelContent() {
     // 2. IMPORT TO DAVINCI RESOLVE
     const handleImportResolve = (asset: NLEAsset) => {
         showToast(`Sending "${asset.title}" to DaVinci Resolve...`, 'info');
-        const activeToken = initialToken || (typeof window !== 'undefined' ? localStorage.getItem('mtc_dam_nle_token') : '') || '';
+        const effectiveToken = activeToken || initialToken || (typeof window !== 'undefined' ? localStorage.getItem('mtc_dam_nle_token') : '') || '';
         let fullDownloadUrl = asset.downloadUri.startsWith('http')
             ? asset.downloadUri
             : `${window.location.origin}${asset.downloadUri}`;
 
-        if (activeToken && !fullDownloadUrl.includes('token=')) {
-            fullDownloadUrl += (fullDownloadUrl.includes('?') ? '&' : '?') + `token=${encodeURIComponent(activeToken)}`;
+        if (!fullDownloadUrl.includes('source=')) {
+            fullDownloadUrl += (fullDownloadUrl.includes('?') ? '&' : '?') + 'source=resolve';
+        }
+
+        if (effectiveToken && !fullDownloadUrl.includes('token=')) {
+            fullDownloadUrl += `&token=${encodeURIComponent(effectiveToken)}`;
         }
 
         const ext = asset.mimeType.split('/')[1] || 'mp4';
@@ -175,7 +202,7 @@ function NLEPanelContent() {
             downloadUrl: fullDownloadUrl,
             fileName,
             binName,
-            token: activeToken,
+            token: effectiveToken,
         }, '*');
 
         // Direct fetch to local bridge

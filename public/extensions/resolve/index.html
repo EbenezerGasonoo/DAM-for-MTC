@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MTC DAM — DaVinci Resolve</title>
+    <title>MTC DAM — DaVinci Resolve Media Hub</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body, html {
@@ -34,14 +34,14 @@
             color: #FEFAE0;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
         }
 
         .status-dot {
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background-color: #D4A373;
+            background-color: #10B981;
             display: inline-block;
         }
 
@@ -49,10 +49,14 @@
             background: rgba(202, 222, 223, 0.1);
             border: 1px solid rgba(202, 222, 223, 0.2);
             color: #CADEDF;
-            padding: 2px 8px;
+            padding: 3px 10px;
             border-radius: 4px;
             font-size: 0.72rem;
             cursor: pointer;
+        }
+        .server-btn:hover {
+            background: rgba(202, 222, 223, 0.2);
+            color: #FFF;
         }
 
         #content-frame {
@@ -61,6 +65,22 @@
             height: calc(100% - 38px);
             border: none;
         }
+
+        #toast-banner {
+            position: fixed;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            background: #1D2729;
+            border: 1px solid rgba(202, 222, 223, 0.25);
+            color: #FFF;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            display: none;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body>
@@ -68,27 +88,39 @@
         <div class="brand">
             <span class="status-dot" id="status-indicator"></span>
             <span>MTC DAM</span>
-            <span style="font-size: 0.68rem; color: #D4A373; padding: 1px 4px; border-radius: 3px; background: rgba(212,163,115,0.2);">RESOLVE</span>
+            <span style="font-size: 0.68rem; color: #D4A373; padding: 2px 6px; border-radius: 3px; background: rgba(212,163,115,0.2); font-weight: 600;">
+                DAVINCI RESOLVE
+            </span>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
-            <span id="bridge-status" style="font-size: 0.7rem; color: #8A9D9E;">Connecting...</span>
+            <span id="bridge-status" style="font-size: 0.72rem; color: #8A9D9E;">Connected</span>
+            <button class="server-btn" onclick="promptServer()">⚙ Server</button>
+            <button class="server-btn" onclick="reloadPanel()">↻ Refresh</button>
         </div>
     </div>
 
     <!-- Embedded NLE Panel View -->
     <iframe id="content-frame" src="about:blank"></iframe>
 
-    <script>
-        const DEFAULT_SERVER = window.location.origin.includes("localhost")
-            ? window.location.origin
-            : "https://dam-for-mtc.onrender.com";
+    <div id="toast-banner"></div>
 
+    <script>
+        const DEFAULT_SERVER = "https://dam.mtc-network.space";
         let savedServer = localStorage.getItem("mtc_dam_server") || DEFAULT_SERVER;
         let savedToken = localStorage.getItem("mtc_dam_nle_token") || "";
 
         const iframe = document.getElementById("content-frame");
         const statusIndicator = document.getElementById("status-indicator");
         const bridgeStatus = document.getElementById("bridge-status");
+        const toast = document.getElementById("toast-banner");
+
+        function showToast(msg, isError = false) {
+            toast.textContent = msg;
+            toast.style.borderColor = isError ? 'rgba(239, 68, 68, 0.5)' : 'rgba(56, 102, 66, 0.5)';
+            toast.style.backgroundColor = isError ? '#2D1515' : '#142517';
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 4000);
+        }
 
         function updateIframe() {
             let cleanUrl = savedServer.replace(/\/+$/, "");
@@ -99,63 +131,97 @@
             iframe.src = target;
         }
 
-        // Check local DaVinci Resolve Python bridge
-        function checkResolveBridge() {
-            fetch("http://127.0.0.1:8765", { method: "GET" })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.status === "ready") {
-                        statusIndicator.style.backgroundColor = "#386642";
-                        bridgeStatus.textContent = data.activeProject || "Resolve Ready";
-                        bridgeStatus.style.color = "#A7F3D0";
-                    } else {
-                        statusIndicator.style.backgroundColor = "#D4A373";
-                        bridgeStatus.textContent = "Open Project in Resolve";
-                    }
-                })
-                .catch(() => {
-                    statusIndicator.style.backgroundColor = "#D4A373";
-                    bridgeStatus.textContent = "Bridge Offline";
-                });
+        function reloadPanel() {
+            updateIframe();
         }
 
-        setInterval(checkResolveBridge, 5000);
-        checkResolveBridge();
+        function promptServer() {
+            const current = localStorage.getItem("mtc_dam_server") || DEFAULT_SERVER;
+            const res = prompt("Enter MTC DAM Production Server URL:", current);
+            if (res && res.trim()) {
+                localStorage.setItem("mtc_dam_server", res.trim());
+                savedServer = res.trim();
+                updateIframe();
+            }
+        }
 
-        // Listen for messages from the embedded panel
-        window.addEventListener("message", function(event) {
-            const data = event.data;
-            if (!data || !data.type) return;
+        // Direct Resolve Import Handler
+        async function handleImportToResolve(data) {
+            const { downloadUrl, fileName, binName, token } = data;
+            showToast(`Downloading "${fileName}" for DaVinci Resolve...`);
 
-            if (data.type === "IMPORT_TO_RESOLVE") {
-                fetch("http://127.0.0.1:8765", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        downloadUrl: data.downloadUrl,
-                        fileName: data.fileName,
-                        binName: data.binName || "MTC DAM Assets",
-                        token: savedToken
-                    })
-                })
-                .then(r => r.json())
-                .then(result => {
-                    iframe.contentWindow.postMessage({
-                        type: "RESOLVE_IMPORT_RESULT",
-                        id: data.id,
-                        result: result
-                    }, "*");
-                })
-                .catch(err => {
-                    iframe.contentWindow.postMessage({
-                        type: "RESOLVE_IMPORT_RESULT",
-                        id: data.id,
-                        result: { success: false, error: "Resolve bridge unreachable. Run MTC_DAM_Importer.py." }
-                    }, "*");
-                });
+            try {
+                // Check if running inside Resolve Studio Electron workflow integration
+                if (typeof window.GetResolveInterface === 'function' && typeof window.DownloadAssetDirect === 'function') {
+                    const resolve = window.GetResolveInterface();
+                    if (!resolve) {
+                        throw new Error('DaVinci Resolve interface not available. Ensure Resolve is open.');
+                    }
+
+                    const cacheDir = window.GetCacheDir();
+                    const path = require('path');
+                    const cleanName = fileName.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+                    const targetPath = path.join(cacheDir, cleanName);
+
+                    // Download file with proper browser User-Agent
+                    await window.DownloadAssetDirect(downloadUrl, targetPath, token);
+                    showToast(`Importing into Media Pool...`);
+
+                    // Import to media pool
+                    const mediaStorage = resolve.GetMediaStorage();
+                    if (mediaStorage) {
+                        const added = mediaStorage.AddItemListToMediaPool([targetPath]);
+                        if (added && added.length > 0) {
+                            showToast(`✓ "${fileName}" imported into DaVinci Resolve!`);
+                            return;
+                        }
+                    }
+
+                    const projManager = resolve.GetProjectManager();
+                    const currentProj = projManager ? projManager.GetCurrentProject() : null;
+                    if (currentProj) {
+                        const mediaPool = currentProj.GetMediaPool();
+                        if (mediaPool) {
+                            mediaPool.ImportMedia([targetPath]);
+                            showToast(`✓ "${fileName}" imported into Media Pool!`);
+                            return;
+                        }
+                    }
+
+                    showToast(`✓ File downloaded to cache: ${targetPath}`);
+                } else {
+                    // Fallback to local python bridge on 127.0.0.1:8765
+                    const res = await fetch('http://127.0.0.1:8765', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ downloadUrl, fileName, binName, token })
+                    });
+                    const result = await res.json();
+                    if (result.success) {
+                        showToast(`✓ Imported into DaVinci Resolve!`);
+                    } else {
+                        showToast(`✕ Resolve: ${result.error || 'Import failed'}`, true);
+                    }
+                }
+            } catch (err) {
+                console.error('Import error:', err);
+                showToast(`✕ Resolve Error: ${err.message}`, true);
+            }
+        }
+
+        // Listen for postMessage from the embedded NLE iframe
+        window.addEventListener('message', (event) => {
+            if (!event.data) return;
+
+            if (event.data.type === 'IMPORT_TO_RESOLVE') {
+                handleImportToResolve(event.data);
+            } else if (event.data.type === 'SAVE_TOKEN' && event.data.token) {
+                localStorage.setItem('mtc_dam_nle_token', event.data.token);
+                savedToken = event.data.token;
             }
         });
 
+        // Initialize iframe
         updateIframe();
     </script>
 </body>

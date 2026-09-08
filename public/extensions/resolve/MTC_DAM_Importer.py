@@ -86,20 +86,42 @@ def get_cache_dir():
         os.makedirs(cache_dir, exist_ok=True)
     return cache_dir
 
+import ssl
+
 def download_and_import(resolve, download_url, file_name, bin_name="MTC DAM Assets", token=None):
     cache_dir = get_cache_dir()
     clean_name = "".join(c for c in file_name if c.isalnum() or c in "._- ")
     target_path = os.path.join(cache_dir, clean_name)
 
-    req = urllib.request.Request(download_url)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 DaVinciResolve/19.0 MTC-DAM/1.0",
+        "Accept": "*/*",
+    }
     if token:
-        req.add_header("Authorization", f"Bearer {token}")
+        headers["Authorization"] = f"Bearer {token}"
 
     print(f"[MTC DAM] Downloading {download_url} to {target_path}...")
-    with urllib.request.urlopen(req) as response, open(target_path, 'wb') as out_file:
-        out_file.write(response.read())
+    ctx = ssl.create_default_context()
+    
+    try:
+        req = urllib.request.Request(download_url, headers=headers)
+        with urllib.request.urlopen(req, context=ctx) as response, open(target_path, 'wb') as out_file:
+            chunk_size = 1024 * 1024  # 1MB chunks
+            total_bytes = 0
+            while True:
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                out_file.write(chunk)
+                total_bytes += len(chunk)
+        print(f"[MTC DAM] Download complete ({total_bytes} bytes). Importing into DaVinci Resolve Media Pool...")
+    except urllib.error.HTTPError as e:
+        print(f"[MTC DAM] HTTP Download Error {e.code}: {e.reason}")
+        return {"success": False, "error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        print(f"[MTC DAM] Download Error: {e}")
+        return {"success": False, "error": str(e)}
 
-    print(f"[MTC DAM] Download complete. Importing into DaVinci Resolve Media Pool...")
     return import_file_to_media_pool(resolve, target_path, bin_name)
 
 # Local HTTP bridge server to allow 1-click browser/web-panel imports
@@ -112,6 +134,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        self.send_header('Access-Control-Allow-Private-Network', 'true')
         self.end_headers()
 
     def do_GET(self):

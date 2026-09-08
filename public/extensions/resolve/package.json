@@ -1,0 +1,6 @@
+{
+    "name": "com.mtc.dam.resolve",
+    "version": "1.0.0",
+    "description": "MTC DAM DaVinci Resolve Workflow Integration",
+    "main": "main.js"
+}

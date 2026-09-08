@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+    <Plugin>
+        <Id>com.mtc.dam.resolve</Id>
+        <Name>MTC DAM Media Hub</Name>
+        <Version>1.0.0</Version>
+        <Description>Mountain Top Communications Digital Asset Management for DaVinci Resolve</Description>
+        <FilePath>main.js</FilePath>
+    </Plugin>
+</BlackmagicDesign>

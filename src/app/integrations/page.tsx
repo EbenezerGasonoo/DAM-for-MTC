@@ -2,6 +2,8 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import Sidebar from '@/components/Sidebar';
+import Header from '@/components/Header';
 
 export default function IntegrationsPage() {
     const { user } = useAuth();
@@ -57,7 +59,12 @@ export default function IntegrationsPage() {
     };
 
     return (
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '36px 24px' }}>
+        <Sidebar>
+            <Header
+                title="NLE Workflow Integrations"
+                subtitle="Connect Adobe Premiere Pro & Blackmagic DaVinci Resolve directly into MTC DAM"
+            />
+            <div className="content-area" style={{ maxWidth: '1280px', margin: '0 auto', padding: '24px 32px' }}>
             {/* Header */}
             <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
@@ -372,5 +379,6 @@ export default function IntegrationsPage() {
 
             </div>
         </div>
+    </Sidebar>
     );
 }
