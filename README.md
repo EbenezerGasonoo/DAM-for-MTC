@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MTC Digital Asset Management (DAM)
 
-## Getting Started
+A centralized, secure digital asset management system for MTC, built with Next.js 16 (App Router), React 19, Prisma, SQLite, WebDAV/Nextcloud, FFmpeg, and Sharp.
 
-First, run the development server:
+---
 
+## Features
+
+- **Asset Management**: Upload, preview, organize, tag, and search images, videos, audio, and documents.
+- **Nextcloud Integration**: Direct bidirectional sync and folder scanning via WebDAV.
+- **Admin Control**: User role management (Admins, Editors, Viewers), audit logging, and custom brand identity styling.
+- **Video Transcoding**: Integrated FFmpeg for automatic video thumbnailing and previews.
+- **Zero Cost Self-Hosting**: Built-in SQLite database requiring zero external paid database services.
+
+---
+
+## Quick Start (Run on Your System)
+
+### Windows (One-Click)
+Double-click **`start-windows.bat`** or run:
+```powershell
+.\start-windows.ps1
+```
+- App URL: [http://localhost:3000](http://localhost:3000)
+- Default Admin Login: `admin@mtc.com` / `admin123`
+
+### With Docker Compose
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker compose up -d --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment & Hosting Options
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+For complete step-by-step instructions on:
+1. **Self-hosting on Windows** (Local & Office Network)
+2. **Cloudflare Tunnel** (Publish with custom domain, DDoS protection & free SSL without port forwarding)
+3. **Linux VPS / Cloud Server** (Hetzner, DigitalOcean, Coolify, Dokploy)
 
-## Learn More
+👉 **Read the full [Hosting Guide](HOSTING_GUIDE.md)**
 
-To learn more about Next.js, take a look at the following resources:
+---
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Tech Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Framework**: Next.js 16 (App Router)
+- **UI**: React 19, Vanilla CSS Design System
+- **Database**: SQLite with Prisma ORM
+- **Media Processing**: FFmpeg & Sharp
+- **Cloud Storage**: Nextcloud / WebDAV

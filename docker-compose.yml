@@ -29,6 +29,20 @@ services:
       # Persistent volume for uploaded media files (local storage fallback)
       - dam_media_storage:/app/public/storage
 
+  # Cloudflare Tunnel: Exposes your DAM securely to the internet with custom domain & free SSL
+  # Run with: docker compose --profile tunnel up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: mtc-dam-tunnel
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - mtc-dam
+    profiles:
+      - tunnel
+
 volumes:
   dam_db_data:
   dam_media_storage:
