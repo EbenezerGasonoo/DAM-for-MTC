@@ -49,8 +49,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts
+COPY --from=builder /app/seed-admin.mjs ./seed-admin.mjs
 
 EXPOSE 3000
 
-# Push DB schema on startup (creates/syncs SQLite tables if fresh container), seed users/audit logs, and start Next.js
-CMD ["sh", "-c", "npx prisma db push && node scripts/seed-users-and-logs.mjs && npm run start"]
+# Push DB schema on startup (creates/syncs SQLite tables if fresh container), ensure Admin exists, and start Next.js
+CMD ["sh", "-c", "npx prisma db push && node seed-admin.mjs && npm run start"]
