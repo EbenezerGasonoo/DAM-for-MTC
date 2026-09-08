@@ -67,7 +67,7 @@ export default function SettingsPage() {
     const { user } = useAuth();
     const isAdmin = user?.role === 'ADMIN';
 
-    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud'>('brand');
+    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud' | 'notifications'>('brand');
 
     // Brand Identity form state
     const [formBrandName, setFormBrandName] = useState(brandName);
@@ -162,6 +162,23 @@ export default function SettingsPage() {
     const [showCreateFolder, setShowCreateFolder] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
     const [creatingFolder, setCreatingFolder] = useState(false);
+
+    // Email / SMTP Notification State
+    const [smtpHost, setSmtpHost] = useState('');
+    const [smtpPort, setSmtpPort] = useState('587');
+    const [smtpSecure, setSmtpSecure] = useState(false);
+    const [smtpUser, setSmtpUser] = useState('');
+    const [smtpPassword, setSmtpPassword] = useState('');
+    const [smtpFrom, setSmtpFrom] = useState('notifications@mtc-network.space');
+    const [smtpFromName, setSmtpFromName] = useState('MTC Digital Asset Management');
+    const [smtpStatus, setSmtpStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'UNCONFIGURED' | 'CHECKING'>('CHECKING');
+    const [smtpHasPassword, setSmtpHasPassword] = useState(false);
+    const [smtpSaving, setSmtpSaving] = useState(false);
+    const [smtpTesting, setSmtpTesting] = useState(false);
+    const [smtpFeedback, setSmtpFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [testRecipientEmail, setTestRecipientEmail] = useState('');
+    const [showSmtpPassword, setShowSmtpPassword] = useState(false);
+    const [testEmailResult, setTestEmailResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
     // Watermark Profile state
     const [watermarkName, setWatermarkName] = useState('MTC Internal Confidential Burn-in');
@@ -507,6 +524,172 @@ export default function SettingsPage() {
         }
     };
 
+    const applySmtpPreset = (preset: 'gmail' | 'resend' | 'sendgrid' | 'brevo' | 'office365' | 'custom') => {
+        switch (preset) {
+            case 'gmail':
+                setSmtpHost('smtp.gmail.com');
+                setSmtpPort('587');
+                setSmtpSecure(false);
+                setSmtpFeedback({
+                    type: 'success',
+                    message: 'Applied Gmail preset. Note: Google requires a 16-character App Password generated from your Google Account → Security → 2-Step Verification → App Passwords.',
+                });
+                break;
+            case 'resend':
+                setSmtpHost('smtp.resend.com');
+                setSmtpPort('587');
+                setSmtpSecure(false);
+                setSmtpUser('resend');
+                setSmtpFeedback({
+                    type: 'success',
+                    message: 'Applied Resend preset. Use "resend" as username and your Resend API Key (re_...) as password.',
+                });
+                break;
+            case 'sendgrid':
+                setSmtpHost('smtp.sendgrid.net');
+                setSmtpPort('587');
+                setSmtpSecure(false);
+                setSmtpUser('apikey');
+                setSmtpFeedback({
+                    type: 'success',
+                    message: 'Applied SendGrid preset. Use "apikey" as username and your SendGrid API Key (SG...) as password.',
+                });
+                break;
+            case 'brevo':
+                setSmtpHost('smtp-relay.brevo.com');
+                setSmtpPort('587');
+                setSmtpSecure(false);
+                setSmtpFeedback({
+                    type: 'success',
+                    message: 'Applied Brevo (Sendinblue) preset. Use your Brevo login email as username and SMTP master key as password.',
+                });
+                break;
+            case 'office365':
+                setSmtpHost('smtp.office365.com');
+                setSmtpPort('587');
+                setSmtpSecure(false);
+                setSmtpFeedback({
+                    type: 'success',
+                    message: 'Applied Microsoft 365 preset. Ensure SMTP AUTH is enabled for your Microsoft 365 mailbox.',
+                });
+                break;
+            case 'custom':
+                setSmtpHost('mail.mtc-network.space');
+                setSmtpPort('587');
+                setSmtpSecure(false);
+                setSmtpFeedback({
+                    type: 'success',
+                    message: 'Custom SMTP configured for your domain mail relay.',
+                });
+                break;
+        }
+    };
+
+    const fetchSmtpSettings = async () => {
+        try {
+            setSmtpStatus('CHECKING');
+            const res = await fetch('/api/settings/smtp');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.host) setSmtpHost(data.host);
+                if (data.port) setSmtpPort(String(data.port));
+                setSmtpSecure(Boolean(data.secure));
+                if (data.user) setSmtpUser(data.user);
+                if (data.from) setSmtpFrom(data.from);
+                if (data.fromName) setSmtpFromName(data.fromName);
+                setSmtpHasPassword(Boolean(data.hasPassword));
+                setSmtpStatus(data.connectionStatus || 'UNCONFIGURED');
+                if (data.error && data.connectionStatus === 'DISCONNECTED') {
+                    setSmtpFeedback({ type: 'error', message: `SMTP Warning: ${data.error}` });
+                }
+            } else {
+                setSmtpStatus('UNCONFIGURED');
+            }
+        } catch {
+            setSmtpStatus('UNCONFIGURED');
+        }
+    };
+
+    const handleSaveSmtp = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setSmtpSaving(true);
+        setSmtpFeedback(null);
+        try {
+            const res = await fetch('/api/settings/smtp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    host: smtpHost,
+                    port: smtpPort,
+                    secure: smtpSecure,
+                    user: smtpUser,
+                    password: smtpPassword,
+                    from: smtpFrom,
+                    fromName: smtpFromName,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setSmtpStatus(data.connectionStatus || 'CONNECTED');
+                setSmtpFeedback({
+                    type: data.connectionStatus === 'CONNECTED' ? 'success' : 'error',
+                    message: data.message || 'SMTP settings saved.',
+                });
+                if (smtpPassword) {
+                    setSmtpHasPassword(true);
+                    setSmtpPassword('');
+                }
+                fetchSmtpSettings();
+            } else {
+                setSmtpStatus('DISCONNECTED');
+                setSmtpFeedback({ type: 'error', message: data.error || 'Failed to save SMTP configuration' });
+            }
+        } catch (err: any) {
+            setSmtpStatus('DISCONNECTED');
+            setSmtpFeedback({ type: 'error', message: err?.message || 'Network error saving SMTP configuration' });
+        } finally {
+            setSmtpSaving(false);
+        }
+    };
+
+    const handleSendTestEmail = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const target = testRecipientEmail.trim() || user?.email;
+        if (!target) {
+            setTestEmailResult({ type: 'error', message: 'Please enter a recipient email address.' });
+            return;
+        }
+
+        setSmtpTesting(true);
+        setTestEmailResult(null);
+        try {
+            const res = await fetch('/api/settings/smtp/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    recipientEmail: target,
+                    host: smtpHost,
+                    port: smtpPort,
+                    secure: smtpSecure,
+                    user: smtpUser,
+                    password: smtpPassword,
+                    from: smtpFrom,
+                    fromName: smtpFromName,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setTestEmailResult({ type: 'success', message: data.message });
+            } else {
+                setTestEmailResult({ type: 'error', message: data.error || 'Failed to deliver test email.' });
+            }
+        } catch (err: any) {
+            setTestEmailResult({ type: 'error', message: err?.message || 'Network error testing email delivery.' });
+        } finally {
+            setSmtpTesting(false);
+        }
+    };
+
     const fetchUsers = async () => {
         try {
             setLoadingUsers(true);
@@ -605,6 +788,8 @@ export default function SettingsPage() {
             fetchAuditLogs();
         } else if (activeTab === 'nextcloud') {
             fetchNextcloudSettings();
+        } else if (activeTab === 'notifications') {
+            fetchSmtpSettings();
         }
     }, [activeTab]);
 
@@ -650,6 +835,7 @@ export default function SettingsPage() {
                         { key: 'brand', label: 'Brand & Visual Identity', icon: '🎨' },
                         { key: 'users', label: 'Users & Access', icon: '👥' },
                         { key: 'nextcloud', label: 'Cloud Storage & Nextcloud', icon: '☁️' },
+                        { key: 'notifications', label: 'Email & Notifications', icon: '✉️' },
                         { key: 'rbac', label: 'Role-Based Access Control (RBAC)', icon: '🛡️' },
                         { key: 'watermark', label: 'DRM & Watermark Profiles', icon: '🔒' },
                         { key: 'audit', label: 'Enterprise System Audit Log', icon: '📋' },
@@ -2491,6 +2677,549 @@ export default function SettingsPage() {
                                     </button>
                                 </div>
                             )}
+                        </section>
+                    </div>
+                )}
+
+                {/* TAB 7: EMAIL & SYSTEM NOTIFICATIONS */}
+                {activeTab === 'notifications' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        {!isAdmin && (
+                            <div style={{
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                backgroundColor: 'rgba(202, 222, 223, 0.08)',
+                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                fontSize: '0.84rem',
+                                color: 'var(--mtc-cornsilk)',
+                            }}>
+                                <span style={{ fontSize: '1.1rem' }}>🛡️</span>
+                                <div>
+                                    <strong>Read-Only Access:</strong> SMTP Mail Relay and notification dispatch policies require Administrator privileges.
+                                </div>
+                            </div>
+                        )}
+
+                        {/* SECTION 1: OVERVIEW & STATUS BANNER */}
+                        <section className="card">
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '16px', marginBottom: '20px' }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                                        <span style={{ fontSize: '1.4rem' }}>✉️</span>
+                                        <h3 style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                                            Automated Email & System Notifications
+                                        </h3>
+                                    </div>
+                                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', maxWidth: '680px', margin: 0, lineHeight: 1.5 }}>
+                                        Connect your email delivery provider (Gmail, Resend, SendGrid, Brevo, or custom SMTP server) to send branded notifications for asset uploads, external share downloads, 24h expiration warnings, and workflow approval stages.
+                                    </p>
+                                </div>
+
+                                {/* Status Badge */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {smtpStatus === 'CONNECTED' ? (
+                                        <span style={{
+                                            padding: '6px 14px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 600,
+                                            backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                            border: '1px solid var(--mtc-hunter-green)',
+                                            color: '#A7F3D0',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981' }} />
+                                            Mail Server Connected & Ready
+                                        </span>
+                                    ) : smtpStatus === 'CHECKING' ? (
+                                        <span style={{
+                                            padding: '6px 14px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 600,
+                                            backgroundColor: 'rgba(202, 222, 223, 0.1)',
+                                            border: '1px solid rgba(202, 222, 223, 0.2)',
+                                            color: 'var(--mtc-cornsilk)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span className="spinner-border spinner-border-sm" style={{ width: '10px', height: '10px', borderWidth: '2px', borderColor: 'var(--mtc-cornsilk)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                                            Checking SMTP Server...
+                                        </span>
+                                    ) : smtpStatus === 'DISCONNECTED' ? (
+                                        <span style={{
+                                            padding: '6px 14px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 600,
+                                            backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                                            color: '#FCA5A5',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#EF4444' }} />
+                                            Auth / Connection Error
+                                        </span>
+                                    ) : (
+                                        <span style={{
+                                            padding: '6px 14px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.78rem',
+                                            fontWeight: 600,
+                                            backgroundColor: 'rgba(202, 222, 223, 0.08)',
+                                            border: '1px solid rgba(202, 222, 223, 0.15)',
+                                            color: 'var(--text-muted)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#9CA3AF' }} />
+                                            SMTP Not Configured
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* PRESET QUICK-CHOOSERS */}
+                            {isAdmin && (
+                                <div style={{
+                                    backgroundColor: 'rgba(10, 15, 16, 0.4)',
+                                    borderRadius: '10px',
+                                    padding: '16px',
+                                    border: '1px solid rgba(202, 222, 223, 0.1)',
+                                    marginBottom: '20px',
+                                }}>
+                                    <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span>⚡</span>
+                                        <span>One-Click Provider Presets (Auto-fills recommended Host & Port):</span>
+                                    </div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                        {[
+                                            { id: 'gmail', label: 'Gmail / Google Workspace', icon: '🔴' },
+                                            { id: 'resend', label: 'Resend', icon: '🖤' },
+                                            { id: 'sendgrid', label: 'SendGrid', icon: '🔵' },
+                                            { id: 'brevo', label: 'Brevo (Sendinblue)', icon: '🟢' },
+                                            { id: 'office365', label: 'Microsoft 365 / Outlook', icon: '🔷' },
+                                            { id: 'custom', label: 'Domain SMTP Relay', icon: '⚙️' },
+                                        ].map(preset => (
+                                            <button
+                                                key={preset.id}
+                                                type="button"
+                                                onClick={() => applySmtpPreset(preset.id as any)}
+                                                className="btn btn-secondary"
+                                                style={{
+                                                    fontSize: '0.78rem',
+                                                    padding: '6px 12px',
+                                                    borderRadius: '6px',
+                                                    border: '1px solid rgba(202, 222, 223, 0.18)',
+                                                    background: 'rgba(255, 255, 255, 0.03)',
+                                                    cursor: 'pointer',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                }}
+                                            >
+                                                <span>{preset.icon}</span>
+                                                <span>{preset.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* SMTP CONFIGURATION FORM */}
+                            <form onSubmit={handleSaveSmtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                                    {/* SMTP HOST */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            SMTP Server Host <span style={{ color: '#EF4444' }}>*</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={smtpHost}
+                                            onChange={e => setSmtpHost(e.target.value)}
+                                            placeholder="e.g. smtp.gmail.com or smtp.resend.com"
+                                            disabled={!isAdmin || smtpSaving}
+                                            required
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                borderRadius: '8px',
+                                                backgroundColor: '#141C1E',
+                                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.88rem',
+                                                fontFamily: 'monospace',
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* SMTP PORT & SECURITY */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '12px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                                Port
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={smtpPort}
+                                                onChange={e => setSmtpPort(e.target.value)}
+                                                placeholder="587"
+                                                disabled={!isAdmin || smtpSaving}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 14px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#141C1E',
+                                                    border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.88rem',
+                                                    fontFamily: 'monospace',
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                                Encryption
+                                            </label>
+                                            <select
+                                                value={smtpSecure ? 'true' : 'false'}
+                                                onChange={e => setSmtpSecure(e.target.value === 'true')}
+                                                disabled={!isAdmin || smtpSaving}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 14px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#141C1E',
+                                                    border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.85rem',
+                                                }}
+                                            >
+                                                <option value="false">STARTTLS / TLS (Port 587)</option>
+                                                <option value="true">Direct SSL (Port 465)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                                    {/* SMTP USER */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            SMTP Username / Account
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={smtpUser}
+                                            onChange={e => setSmtpUser(e.target.value)}
+                                            placeholder="e.g. notifications@mtc-network.space or apikey"
+                                            disabled={!isAdmin || smtpSaving}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                borderRadius: '8px',
+                                                backgroundColor: '#141C1E',
+                                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.88rem',
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* SMTP PASSWORD */}
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                            <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>
+                                                Password / App Token {smtpHasPassword && <span style={{ color: '#10B981', fontSize: '0.75rem' }}>(Configured)</span>}
+                                            </label>
+                                            {smtpHasPassword && (
+                                                <span
+                                                    onClick={() => setShowSmtpPassword(!showSmtpPassword)}
+                                                    style={{ fontSize: '0.75rem', color: 'var(--mtc-hunter-green)', cursor: 'pointer' }}
+                                                >
+                                                    {showSmtpPassword ? 'Hide' : 'Change password'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <input
+                                            type={showSmtpPassword || !smtpHasPassword ? 'text' : 'password'}
+                                            value={smtpPassword}
+                                            onChange={e => setSmtpPassword(e.target.value)}
+                                            placeholder={smtpHasPassword ? '•••••••••••••••• (Leave blank to keep saved)' : 'Enter SMTP password or API token'}
+                                            disabled={!isAdmin || smtpSaving}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                borderRadius: '8px',
+                                                backgroundColor: '#141C1E',
+                                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.88rem',
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                                    {/* SENDER EMAIL */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Sender From Email Address
+                                        </label>
+                                        <input
+                                            type="email"
+                                            value={smtpFrom}
+                                            onChange={e => setSmtpFrom(e.target.value)}
+                                            placeholder="notifications@mtc-network.space"
+                                            disabled={!isAdmin || smtpSaving}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                borderRadius: '8px',
+                                                backgroundColor: '#141C1E',
+                                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.88rem',
+                                            }}
+                                        />
+                                    </div>
+
+                                    {/* SENDER DISPLAY NAME */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Sender Display Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={smtpFromName}
+                                            onChange={e => setSmtpFromName(e.target.value)}
+                                            placeholder="Mountain Top Communications DAM"
+                                            disabled={!isAdmin || smtpSaving}
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                borderRadius: '8px',
+                                                backgroundColor: '#141C1E',
+                                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.88rem',
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {smtpFeedback && (
+                                    <div style={{
+                                        padding: '12px 16px',
+                                        borderRadius: '8px',
+                                        backgroundColor: smtpFeedback.type === 'success' ? 'rgba(56, 102, 66, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                                        border: `1px solid ${smtpFeedback.type === 'success' ? 'var(--mtc-hunter-green)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                        color: smtpFeedback.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                        fontSize: '0.84rem',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                    }}>
+                                        <span>{smtpFeedback.message}</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSmtpFeedback(null)}
+                                            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                )}
+
+                                {isAdmin && (
+                                    <div style={{ display: 'flex', gap: '12px', marginTop: '10px', flexWrap: 'wrap' }}>
+                                        <button
+                                            type="submit"
+                                            disabled={smtpSaving}
+                                            className="btn btn-primary"
+                                            style={{
+                                                padding: '10px 20px',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                fontWeight: 600,
+                                            }}
+                                        >
+                                            <span>💾</span>
+                                            <span>{smtpSaving ? 'Saving & Verifying...' : 'Save & Verify SMTP Connection'}</span>
+                                        </button>
+                                    </div>
+                                )}
+                            </form>
+                        </section>
+
+                        {/* SECTION 2: LIVE TEST EMAIL DISPATCHER */}
+                        <section className="card">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '1.2rem' }}>🚀</span>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                                    Live Test Email Dispatcher
+                                </h3>
+                            </div>
+                            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '16px' }}>
+                                Send an authentic test email to confirm your mail server can successfully deliver messages to actual inboxes.
+                            </p>
+
+                            <form onSubmit={handleSendTestEmail} style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                <div style={{ flex: '1', minWidth: '260px' }}>
+                                    <input
+                                        type="email"
+                                        value={testRecipientEmail}
+                                        onChange={e => setTestRecipientEmail(e.target.value)}
+                                        placeholder={user?.email ? `Default: ${user.email}` : 'Enter recipient email address...'}
+                                        disabled={smtpTesting}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 14px',
+                                            borderRadius: '8px',
+                                            backgroundColor: '#141C1E',
+                                            border: '1px solid rgba(202, 222, 223, 0.2)',
+                                            color: 'var(--mtc-cornsilk)',
+                                            fontSize: '0.88rem',
+                                        }}
+                                    />
+                                </div>
+                                <button
+                                    type="submit"
+                                    disabled={smtpTesting}
+                                    className="btn btn-secondary"
+                                    style={{
+                                        padding: '10px 20px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                    }}
+                                >
+                                    <span>{smtpTesting ? '⏳' : '📨'}</span>
+                                    <span>{smtpTesting ? 'Sending Test...' : 'Send Live Test Email'}</span>
+                                </button>
+                            </form>
+
+                            {testEmailResult && (
+                                <div style={{
+                                    marginTop: '16px',
+                                    padding: '12px 16px',
+                                    borderRadius: '8px',
+                                    backgroundColor: testEmailResult.type === 'success' ? 'rgba(56, 102, 66, 0.2)' : 'rgba(239, 68, 68, 0.15)',
+                                    border: `1px solid ${testEmailResult.type === 'success' ? 'var(--mtc-hunter-green)' : 'rgba(239, 68, 68, 0.3)'}`,
+                                    color: testEmailResult.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                    fontSize: '0.84rem',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                }}>
+                                    <span>{testEmailResult.message}</span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setTestEmailResult(null)}
+                                        style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer' }}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            )}
+                        </section>
+
+                        {/* SECTION 3: AUTOMATED EVENT NOTIFICATION POLICIES */}
+                        <section className="card">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                <span style={{ fontSize: '1.2rem' }}>🔔</span>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                                    Active System Event Notification Triggers
+                                </h3>
+                            </div>
+                            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
+                                The following automated email dispatch rules are integrated into the MTC DAM pipeline:
+                            </p>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+                                {[
+                                    {
+                                        title: 'Asset Upload Completed',
+                                        icon: '📥',
+                                        desc: 'Sends notification when high-res video or photo stems finish transcoding and proxy ingestion.',
+                                        status: 'Enabled',
+                                    },
+                                    {
+                                        title: 'External Share Accessed',
+                                        icon: '👁️',
+                                        desc: 'Notifies asset creators and account managers whenever an external client views or downloads a shared link.',
+                                        status: 'Enabled',
+                                    },
+                                    {
+                                        title: 'Share Expiry Warning',
+                                        icon: '⏳',
+                                        desc: 'Dispatches automated reminder emails 24 hours before a client download link is set to expire.',
+                                        status: 'Enabled',
+                                    },
+                                    {
+                                        title: 'Workflow Approval Needed',
+                                        icon: '🚦',
+                                        desc: 'Alerts assigned producers and editors with a direct review link when an asset is submitted for broadcast sign-off.',
+                                        status: 'Enabled',
+                                    },
+                                    {
+                                        title: 'Workflow Sign-Off Granted',
+                                        icon: '✅',
+                                        desc: 'Sends instant confirmation to the creator once an asset is approved for distribution.',
+                                        status: 'Enabled',
+                                    },
+                                ].map((event, idx) => (
+                                    <div
+                                        key={idx}
+                                        style={{
+                                            padding: '16px',
+                                            borderRadius: '10px',
+                                            backgroundColor: '#141C1E',
+                                            border: '1px solid rgba(202, 222, 223, 0.12)',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            justifyContent: 'space-between',
+                                        }}
+                                    >
+                                        <div>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ fontSize: '1.1rem' }}>{event.icon}</span>
+                                                    <strong style={{ fontSize: '0.88rem', color: 'var(--mtc-cornsilk)' }}>{event.title}</strong>
+                                                </div>
+                                                <span style={{
+                                                    fontSize: '0.7rem',
+                                                    fontWeight: 600,
+                                                    padding: '3px 8px',
+                                                    borderRadius: '12px',
+                                                    backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                                    color: '#A7F3D0',
+                                                    border: '1px solid var(--mtc-hunter-green)',
+                                                }}>
+                                                    {event.status}
+                                                </span>
+                                            </div>
+                                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0, lineHeight: 1.4 }}>
+                                                {event.desc}
+                                            </p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </section>
                     </div>
                 )}
