@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyPassword, signToken, createAuthHeaders } from '@/lib/auth';
+import { logActivity } from '@/lib/activity';
 
 export async function POST(req: NextRequest) {
     try {
@@ -26,6 +27,16 @@ export async function POST(req: NextRequest) {
             name: user.name,
             role: user.role,
         });
+
+        // Audit Trail: Record user login activity
+        await logActivity(
+            user.id,
+            'LOGIN',
+            'USER',
+            user.id,
+            { email: user.email, role: user.role, method: 'Password Authentication' },
+            req
+        );
 
         return NextResponse.json(
             {

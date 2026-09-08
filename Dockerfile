@@ -52,5 +52,5 @@ COPY --from=builder /app/scripts ./scripts
 
 EXPOSE 3000
 
-# Push DB schema on startup (creates/syncs SQLite tables if fresh container) and start Next.js
-CMD ["sh", "-c", "npx prisma db push && npm run start"]
+# Push DB schema on startup (creates/syncs SQLite tables if fresh container), seed users/audit logs, and start Next.js
+CMD ["sh", "-c", "npx prisma db push && node scripts/seed-users-and-logs.mjs && npm run start"]

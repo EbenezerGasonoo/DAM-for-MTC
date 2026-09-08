@@ -19,6 +19,20 @@ interface ActivityItem {
     user?: { id: string; name: string; email: string };
 }
 
+interface UserItem {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    createdAt: string;
+    updatedAt: string;
+    _count?: {
+        assets: number;
+        activities: number;
+        projects: number;
+    };
+}
+
 const rbacMatrix = [
     { permission: 'Ingest Media & Stems', admin: true, producer: true, editor: true, viewer: false },
     { permission: 'Edit Technical Metadata & Tags', admin: true, producer: true, editor: true, viewer: false },
@@ -34,7 +48,21 @@ const rbacMatrix = [
 
 export default function SettingsPage() {
     const { colors, updateColor, saveColors, resetToDefaults, hasUnsavedChanges } = useBranding();
-    const [activeTab, setActiveTab] = useState<'brand' | 'rbac' | 'watermark' | 'audit' | 'nextcloud'>('brand');
+    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud'>('brand');
+
+    // User Management state
+    const [users, setUsers] = useState<UserItem[]>([]);
+    const [loadingUsers, setLoadingUsers] = useState(false);
+    const [userSearch, setUserSearch] = useState('');
+    const [userRoleFilter, setUserRoleFilter] = useState('ALL');
+    const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
+    const [newUserName, setNewUserName] = useState('');
+    const [newUserEmail, setNewUserEmail] = useState('');
+    const [newUserPassword, setNewUserPassword] = useState('');
+    const [newUserRole, setNewUserRole] = useState<'ADMIN' | 'EDITOR' | 'PRODUCER' | 'VIEWER'>('EDITOR');
+    const [userSaving, setUserSaving] = useState(false);
+    const [userFeedback, setUserFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
     // Audit log state
     const [activities, setActivities] = useState<ActivityItem[]>([]);
@@ -212,13 +240,121 @@ export default function SettingsPage() {
         }
     };
 
+    const fetchUsers = async () => {
+        try {
+            setLoadingUsers(true);
+            const res = await fetch('/api/users');
+            if (res.ok) {
+                const data = await res.json();
+                setUsers(data.users || []);
+            }
+        } catch (err) {
+            console.error('Failed to load users:', err);
+        } finally {
+            setLoadingUsers(false);
+        }
+    };
+
+    const handleCreateUser = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setUserSaving(true);
+        setUserFeedback(null);
+        try {
+            const res = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: newUserName,
+                    email: newUserEmail,
+                    password: newUserPassword,
+                    role: newUserRole,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.user) {
+                setUserFeedback({ type: 'success', message: `User ${data.user.email} created successfully!` });
+                setNewUserName('');
+                setNewUserEmail('');
+                setNewUserPassword('');
+                setNewUserRole('EDITOR');
+                setIsCreateUserModalOpen(false);
+                fetchUsers();
+                fetchAuditLogs();
+            } else {
+                setUserFeedback({ type: 'error', message: data.error || 'Failed to create user account.' });
+            }
+        } catch (err: any) {
+            setUserFeedback({ type: 'error', message: err?.message || 'Network error creating user.' });
+        } finally {
+            setUserSaving(false);
+        }
+    };
+
+    const handleUpdateRole = async (userId: string, newRole: string) => {
+        setActionLoadingId(userId);
+        try {
+            const res = await fetch(`/api/users/${userId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role: newRole }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                fetchUsers();
+                fetchAuditLogs();
+            } else {
+                alert(data.error || 'Failed to update user role');
+            }
+        } catch (err: any) {
+            alert(err?.message || 'Error updating user');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const handleDeleteUser = async (userId: string, userEmail: string) => {
+        if (!confirm(`Are you sure you want to delete user ${userEmail}?`)) return;
+        setActionLoadingId(userId);
+        try {
+            const res = await fetch(`/api/users/${userId}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (res.ok) {
+                fetchUsers();
+                fetchAuditLogs();
+            } else {
+                alert(data.error || 'Failed to delete user');
+            }
+        } catch (err: any) {
+            alert(err?.message || 'Error deleting user');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
     useEffect(() => {
-        if (activeTab === 'audit') {
+        if (activeTab === 'users') {
+            fetchUsers();
+        } else if (activeTab === 'audit') {
             fetchAuditLogs();
         } else if (activeTab === 'nextcloud') {
             fetchNextcloudSettings();
         }
     }, [activeTab]);
+
+    const filteredUsers = users.filter(u => {
+        const matchesRole = userRoleFilter === 'ALL' || u.role === userRoleFilter;
+        const matchesSearch = !userSearch ||
+            u.name.toLowerCase().includes(userSearch.toLowerCase()) ||
+            u.email.toLowerCase().includes(userSearch.toLowerCase());
+        return matchesRole && matchesSearch;
+    });
+
+    const roleBadgeColors: Record<string, { bg: string; text: string; border: string }> = {
+        ADMIN: { bg: 'rgba(239, 68, 68, 0.15)', text: '#FCA5A5', border: 'rgba(239, 68, 68, 0.3)' },
+        PRODUCER: { bg: 'rgba(56, 102, 66, 0.25)', text: '#A7F3D0', border: 'rgba(56, 102, 66, 0.4)' },
+        EDITOR: { bg: 'rgba(230, 167, 76, 0.2)', text: '#FFD180', border: 'rgba(230, 167, 76, 0.4)' },
+        VIEWER: { bg: 'rgba(202, 222, 223, 0.12)', text: '#CADEDF', border: 'rgba(202, 222, 223, 0.2)' },
+    };
 
     const filteredActivities = activities.filter(a => {
         const matchesAction = actionFilter === 'ALL' || a.action === actionFilter;
@@ -241,9 +377,11 @@ export default function SettingsPage() {
                     borderBottom: '1px solid var(--border-color)',
                     marginBottom: '24px',
                     gap: '6px',
+                    overflowX: 'auto',
                 }}>
                     {[
                         { key: 'brand', label: 'Brand & Visual Identity', icon: '🎨' },
+                        { key: 'users', label: 'Users & Access', icon: '👥' },
                         { key: 'nextcloud', label: 'Cloud Storage & Nextcloud', icon: '☁️' },
                         { key: 'rbac', label: 'Role-Based Access Control (RBAC)', icon: '🛡️' },
                         { key: 'watermark', label: 'DRM & Watermark Profiles', icon: '🔒' },
@@ -419,6 +557,385 @@ export default function SettingsPage() {
                             </div>
                         </section>
                     </>
+                )}
+
+                {/* TAB: USERS & ACCESS MANAGEMENT */}
+                {activeTab === 'users' && (
+                    <section className="card">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                            <div>
+                                <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', fontFamily: 'var(--font-brand)' }}>
+                                    User Accounts & Access Control
+                                </h3>
+                                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                    Manage enterprise administrator, editor, and producer accounts across the MTC production network.
+                                </p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                                <button
+                                    onClick={fetchUsers}
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+                                >
+                                    ↻ Refresh
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setUserFeedback(null);
+                                        setIsCreateUserModalOpen(true);
+                                    }}
+                                    className="btn btn-primary"
+                                    style={{ fontSize: '0.8rem', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                >
+                                    <span>+</span> Add New User
+                                </button>
+                            </div>
+                        </div>
+
+                        {userFeedback && (
+                            <div style={{
+                                padding: '10px 14px',
+                                borderRadius: '6px',
+                                marginBottom: '16px',
+                                fontSize: '0.84rem',
+                                backgroundColor: userFeedback.type === 'success' ? 'rgba(56, 102, 66, 0.25)' : 'rgba(239, 68, 68, 0.2)',
+                                border: '1px solid ' + (userFeedback.type === 'success' ? 'var(--mtc-hunter-green)' : 'rgba(239, 68, 68, 0.4)'),
+                                color: userFeedback.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                            }}>
+                                {userFeedback.message}
+                            </div>
+                        )}
+
+                        {/* Search & Role Filters */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
+                            <input
+                                value={userSearch}
+                                onChange={(e) => setUserSearch(e.target.value)}
+                                placeholder="Search users by name or email..."
+                                style={{
+                                    flex: 1,
+                                    maxWidth: '360px',
+                                    padding: '8px 12px',
+                                    backgroundColor: 'var(--bg-color)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '6px',
+                                    color: 'var(--mtc-cornsilk)',
+                                    fontSize: '0.82rem',
+                                    outline: 'none',
+                                }}
+                            />
+
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                                {['ALL', 'ADMIN', 'EDITOR', 'PRODUCER', 'VIEWER'].map(r => (
+                                    <button
+                                        key={r}
+                                        onClick={() => setUserRoleFilter(r)}
+                                        style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '6px',
+                                            fontSize: '0.74rem',
+                                            fontWeight: 600,
+                                            border: '1px solid ' + (userRoleFilter === r ? 'var(--mtc-hunter-green)' : 'var(--border-color)'),
+                                            backgroundColor: userRoleFilter === r ? 'rgba(56, 102, 66, 0.3)' : 'transparent',
+                                            color: userRoleFilter === r ? 'var(--mtc-cornsilk)' : 'var(--text-muted)',
+                                            cursor: 'pointer',
+                                        }}
+                                    >
+                                        {r}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Users Table */}
+                        {loadingUsers ? (
+                            <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                                Loading user accounts...
+                            </div>
+                        ) : (
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.84rem' }}>
+                                    <thead>
+                                        <tr style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'rgba(20, 28, 30, 0.6)', textAlign: 'left' }}>
+                                            <th style={{ padding: '10px 14px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.72rem' }}>User</th>
+                                            <th style={{ padding: '10px 14px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.72rem' }}>Role</th>
+                                            <th style={{ padding: '10px 14px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.72rem' }}>Created</th>
+                                            <th style={{ padding: '10px 14px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.72rem', textAlign: 'center' }}>Assets</th>
+                                            <th style={{ padding: '10px 14px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.72rem', textAlign: 'center' }}>Activities</th>
+                                            <th style={{ padding: '10px 14px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.72rem', textAlign: 'right' }}>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredUsers.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={6} style={{ textAlign: 'center', padding: '32px', color: 'var(--text-dim)' }}>
+                                                    No user accounts found matching your filter.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredUsers.map(u => {
+                                                const badge = roleBadgeColors[u.role] || roleBadgeColors.VIEWER;
+                                                return (
+                                                    <tr key={u.id} style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.15s' }}>
+                                                        <td style={{ padding: '12px 14px' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                <div style={{
+                                                                    width: '32px',
+                                                                    height: '32px',
+                                                                    borderRadius: '50%',
+                                                                    backgroundColor: badge.bg,
+                                                                    color: badge.text,
+                                                                    border: `1px solid ${badge.border}`,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center',
+                                                                    fontWeight: 700,
+                                                                    fontSize: '0.8rem',
+                                                                }}>
+                                                                    {u.name ? u.name.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
+                                                                </div>
+                                                                <div>
+                                                                    <div style={{ fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>{u.name}</div>
+                                                                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{u.email}</div>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ padding: '12px 14px' }}>
+                                                            <select
+                                                                value={u.role}
+                                                                disabled={actionLoadingId === u.id}
+                                                                onChange={(e) => handleUpdateRole(u.id, e.target.value)}
+                                                                style={{
+                                                                    padding: '4px 8px',
+                                                                    borderRadius: '6px',
+                                                                    fontSize: '0.75rem',
+                                                                    fontWeight: 600,
+                                                                    backgroundColor: badge.bg,
+                                                                    color: badge.text,
+                                                                    border: `1px solid ${badge.border}`,
+                                                                    cursor: 'pointer',
+                                                                    outline: 'none',
+                                                                }}
+                                                            >
+                                                                <option value="ADMIN" style={{ background: '#1D2729', color: '#FCA5A5' }}>ADMIN</option>
+                                                                <option value="EDITOR" style={{ background: '#1D2729', color: '#FFD180' }}>EDITOR</option>
+                                                                <option value="PRODUCER" style={{ background: '#1D2729', color: '#A7F3D0' }}>PRODUCER</option>
+                                                                <option value="VIEWER" style={{ background: '#1D2729', color: '#CADEDF' }}>VIEWER</option>
+                                                            </select>
+                                                        </td>
+                                                        <td style={{ padding: '12px 14px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                                                            {new Date(u.createdAt).toLocaleDateString()}
+                                                        </td>
+                                                        <td style={{ padding: '12px 14px', textAlign: 'center', color: 'var(--mtc-cornsilk)' }}>
+                                                            {u._count?.assets ?? 0}
+                                                        </td>
+                                                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setActiveTab('audit');
+                                                                    setAuditSearch(u.email);
+                                                                }}
+                                                                style={{
+                                                                    background: 'rgba(202, 222, 223, 0.08)',
+                                                                    border: '1px solid var(--border-color)',
+                                                                    color: 'var(--mtc-cornsilk)',
+                                                                    borderRadius: '4px',
+                                                                    padding: '2px 8px',
+                                                                    fontSize: '0.74rem',
+                                                                    cursor: 'pointer',
+                                                                }}
+                                                                title="View audit trail for this user"
+                                                            >
+                                                                {u._count?.activities ?? 0} logs ↗
+                                                            </button>
+                                                        </td>
+                                                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                                                            <button
+                                                                onClick={() => handleDeleteUser(u.id, u.email)}
+                                                                disabled={actionLoadingId === u.id}
+                                                                style={{
+                                                                    background: 'transparent',
+                                                                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                                                                    color: '#FCA5A5',
+                                                                    borderRadius: '4px',
+                                                                    padding: '4px 8px',
+                                                                    fontSize: '0.72rem',
+                                                                    cursor: 'pointer',
+                                                                    opacity: actionLoadingId === u.id ? 0.5 : 1,
+                                                                }}
+                                                                title="Delete user account"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+
+                        {/* Modal: Create User */}
+                        {isCreateUserModalOpen && (
+                            <div style={{
+                                position: 'fixed',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: 'rgba(0, 0, 0, 0.75)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                zIndex: 1000,
+                                backdropFilter: 'blur(4px)',
+                            }}>
+                                <div style={{
+                                    backgroundColor: 'var(--surface-color)',
+                                    borderRadius: '12px',
+                                    border: '1px solid var(--border-color)',
+                                    width: '100%',
+                                    maxWidth: '460px',
+                                    padding: '24px',
+                                    boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+                                }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+                                        <h4 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', fontFamily: 'var(--font-brand)', margin: 0 }}>
+                                            Create Account
+                                        </h4>
+                                        <button
+                                            onClick={() => setIsCreateUserModalOpen(false)}
+                                            style={{
+                                                background: 'none',
+                                                border: 'none',
+                                                color: 'var(--text-muted)',
+                                                fontSize: '1.2rem',
+                                                cursor: 'pointer',
+                                            }}
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+
+                                    <form onSubmit={handleCreateUser} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                                Full Name
+                                            </label>
+                                            <input
+                                                required
+                                                value={newUserName}
+                                                onChange={(e) => setNewUserName(e.target.value)}
+                                                placeholder="e.g. Sarah Jenkins"
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    backgroundColor: 'var(--bg-color)',
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: '6px',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.85rem',
+                                                    outline: 'none',
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                                Email Address
+                                            </label>
+                                            <input
+                                                required
+                                                type="email"
+                                                value={newUserEmail}
+                                                onChange={(e) => setNewUserEmail(e.target.value)}
+                                                placeholder="e.g. editor@mtc.com"
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    backgroundColor: 'var(--bg-color)',
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: '6px',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.85rem',
+                                                    outline: 'none',
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                                Initial Password (min 8 characters)
+                                            </label>
+                                            <input
+                                                required
+                                                type="password"
+                                                value={newUserPassword}
+                                                onChange={(e) => setNewUserPassword(e.target.value)}
+                                                placeholder="Secure password"
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    backgroundColor: 'var(--bg-color)',
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: '6px',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.85rem',
+                                                    outline: 'none',
+                                                }}
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                                                System Role
+                                            </label>
+                                            <select
+                                                value={newUserRole}
+                                                onChange={(e) => setNewUserRole(e.target.value as any)}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '8px 12px',
+                                                    backgroundColor: 'var(--bg-color)',
+                                                    border: '1px solid var(--border-color)',
+                                                    borderRadius: '6px',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.85rem',
+                                                    outline: 'none',
+                                                }}
+                                            >
+                                                <option value="ADMIN">ADMIN — Full system governance, deletion, DRM, audit logs</option>
+                                                <option value="EDITOR">EDITOR — Ingest media, edit tags, proxies, export masters</option>
+                                                <option value="PRODUCER">PRODUCER — Ingest, workflow approve, publish, workspaces</option>
+                                                <option value="VIEWER">VIEWER — Stream 1080p proxies, read-only preview</option>
+                                            </select>
+                                        </div>
+
+                                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px' }}>
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsCreateUserModalOpen(false)}
+                                                className="btn btn-secondary"
+                                                style={{ fontSize: '0.82rem', padding: '6px 14px' }}
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                type="submit"
+                                                disabled={userSaving}
+                                                className="btn btn-primary"
+                                                style={{ fontSize: '0.82rem', padding: '6px 16px' }}
+                                            >
+                                                {userSaving ? 'Creating...' : 'Create Account'}
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+                        )}
+                    </section>
                 )}
 
                 {/* TAB 2: ROLE-BASED ACCESS CONTROL (RBAC) */}
