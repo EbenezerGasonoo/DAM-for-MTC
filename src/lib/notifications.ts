@@ -69,7 +69,7 @@ export function createTransporter(config: SmtpConfig) {
             pass: config.password,
         } : undefined,
         tls: {
-            rejectUnauthorized: process.env.NODE_ENV === 'production' && config.host !== 'localhost' && !config.host.startsWith('192.168.') && !config.host.startsWith('127.'),
+            rejectUnauthorized: false,
         },
     });
 }

@@ -654,9 +654,10 @@ export default function SettingsPage() {
 
     const handleSendTestEmail = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        const target = testRecipientEmail.trim() || user?.email;
+        const fallback = user?.email && !user.email.endsWith('@mtc.com') ? user.email : '';
+        const target = testRecipientEmail.trim() || fallback;
         if (!target) {
-            setTestEmailResult({ type: 'error', message: 'Please enter a recipient email address.' });
+            setTestEmailResult({ type: 'error', message: 'Please enter your destination email address (e.g. your personal Gmail or work inbox) in the box above.' });
             return;
         }
 
@@ -3082,8 +3083,9 @@ export default function SettingsPage() {
                                         type="email"
                                         value={testRecipientEmail}
                                         onChange={e => setTestRecipientEmail(e.target.value)}
-                                        placeholder={user?.email ? `Default: ${user.email}` : 'Enter recipient email address...'}
+                                        placeholder={user?.email && !user.email.endsWith('@mtc.com') ? `Default: ${user.email}` : 'Enter your recipient email (e.g. name@gmail.com)...'}
                                         disabled={smtpTesting}
+                                        required
                                         style={{
                                             width: '100%',
                                             padding: '10px 14px',
