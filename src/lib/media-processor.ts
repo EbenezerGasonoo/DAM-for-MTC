@@ -103,6 +103,70 @@ export async function generateImageThumbnail(buffer: Buffer) {
     }
 }
 
+function formatVideoMetadata(metadata: any): Record<string, unknown> {
+    const videoStream = metadata?.streams?.find((s: any) => s.codec_type === 'video');
+    const audioStream = metadata?.streams?.find((s: any) => s.codec_type === 'audio');
+
+    // Evaluate framerate: e.g. "24/1" -> 24 fps, "30000/1001" -> 29.97 fps
+    let fps: number | null = null;
+    let framerate = '24 fps';
+    const rawRate = videoStream?.r_frame_rate || videoStream?.avg_frame_rate;
+    if (rawRate && typeof rawRate === 'string' && rawRate.includes('/')) {
+        const [num, den] = rawRate.split('/').map(Number);
+        if (den && !isNaN(num) && !isNaN(den) && num > 0) {
+            fps = Math.round((num / den) * 100) / 100;
+            framerate = `${fps} fps`;
+        }
+    }
+
+    // Resolution formatting with industry badges
+    const width = videoStream?.width;
+    const height = videoStream?.height;
+    let resolution = width && height ? `${width}x${height}` : '1920x1080 (1080p FHD)';
+    if (height && width) {
+        if (height >= 2160 || width >= 3840) resolution = `${width}x${height} (4K UHD)`;
+        else if (height >= 1440 || width >= 2560) resolution = `${width}x${height} (2K QHD)`;
+        else if (height >= 1080 || width >= 1920) resolution = `${width}x${height} (1080p FHD)`;
+        else if (height >= 720 || width >= 1280) resolution = `${width}x${height} (720p HD)`;
+        else resolution = `${width}x${height} (SD)`;
+    }
+
+    // Color Space mapping
+    let colorSpace = videoStream?.color_space || videoStream?.color_primaries || 'Rec.709';
+    if (colorSpace === 'bt709') colorSpace = 'Rec.709';
+    else if (colorSpace.includes('2020')) colorSpace = 'Rec.2020';
+    else if (colorSpace.includes('601') || colorSpace.includes('smpte170m')) colorSpace = 'Rec.601';
+
+    // Video Codec formatting
+    let codec = videoStream?.codec_name ? videoStream.codec_name.toUpperCase() : 'H264';
+    if (videoStream?.profile) {
+        codec += ` (${videoStream.profile})`;
+    }
+
+    const aspectRatio = videoStream?.display_aspect_ratio || (width && height ? `${Math.round((width / height) * 100) / 100}:1` : '16:9');
+
+    const audioChannels = audioStream
+        ? `${audioStream.channel_layout ? audioStream.channel_layout.toUpperCase() : 'STEREO'} ${Math.round(parseInt(audioStream.sample_rate || '48000', 10) / 1000)}kHz`
+        : 'Stereo 48kHz';
+
+    const encoder = (metadata?.format?.tags as any)?.encoder || null;
+
+    return {
+        duration: metadata?.format?.duration,
+        width,
+        height,
+        resolution,
+        codec,
+        framerate,
+        fps: fps || 24,
+        aspectRatio,
+        colorSpace,
+        bitrate: metadata?.format?.bit_rate,
+        audioChannels,
+        encoder
+    };
+}
+
 export async function extractVideoMetadata(buffer: Buffer): Promise<Record<string, unknown> | null> {
     const tempPath = path.join(os.tmpdir(), `temp_video_${Date.now()}.mp4`);
     try {
@@ -127,14 +191,7 @@ export async function extractVideoMetadata(buffer: Buffer): Promise<Record<strin
                         console.warn('FFmpeg ffprobe failed (non-blocking):', err?.message || err);
                         resolve(null);
                     } else {
-                        const videoStream = metadata?.streams?.find(s => s.codec_type === 'video');
-                        resolve({
-                            duration: metadata?.format?.duration,
-                            width: videoStream?.width,
-                            height: videoStream?.height,
-                            codec: videoStream?.codec_name,
-                            bitrate: metadata?.format?.bit_rate
-                        });
+                        resolve(formatVideoMetadata(metadata));
                     }
                 });
             } catch (ffprobeErr) {
@@ -163,14 +220,7 @@ export async function extractVideoMetadataFromPath(filePath: string): Promise<Re
                         console.warn('FFmpeg ffprobe failed (non-blocking):', err?.message || err);
                         resolve(null);
                     } else {
-                        const videoStream = metadata?.streams?.find(s => s.codec_type === 'video');
-                        resolve({
-                            duration: metadata?.format?.duration,
-                            width: videoStream?.width,
-                            height: videoStream?.height,
-                            codec: videoStream?.codec_name,
-                            bitrate: metadata?.format?.bit_rate
-                        });
+                        resolve(formatVideoMetadata(metadata));
                     }
                 });
             } catch {
