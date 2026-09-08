@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadAsset, uploadAssetFromPath } from '@/lib/nextcloud';
+import { uploadAsset, uploadAssetFromPath, getActiveNextcloudConfig } from '@/lib/nextcloud';
 import { prisma } from '@/lib/prisma';
 import { getAuthFromCookies } from '@/lib/auth';
 import { 
@@ -111,7 +111,9 @@ export async function POST(req: NextRequest) {
         }
 
         // 5. Stream assembled file to Nextcloud / persistent storage
-        const nextcloudPath = `/mtc-dam-uploads/${timestamp}_${cleanName}`;
+        const ncConfig = await getActiveNextcloudConfig();
+        const rootDir = (ncConfig.rootFolder || '/mtc-dam-uploads').replace(/\/+$/, '') || '/mtc-dam-uploads';
+        const nextcloudPath = `${rootDir}/${timestamp}_${cleanName}`;
         console.log(`[Chunk Ingestion] Streaming assembled file to storage: ${nextcloudPath}...`);
         await uploadAssetFromPath(nextcloudPath, assembledPath);
 

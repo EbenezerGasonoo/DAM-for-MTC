@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { uploadAsset } from '@/lib/nextcloud';
+import { uploadAsset, getActiveNextcloudConfig } from '@/lib/nextcloud';
 import { 
     extractImageMetadata, 
     generateImageThumbnail, 
@@ -86,7 +86,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         const nextVersionNum = asset.versions.length > 0 ? asset.versions[0].versionNum + 1 : 2;
 
         // Upload to Nextcloud
-        const nextcloudPath = `/mtc-dam-uploads/${id}/v${nextVersionNum}_${timestamp}_${cleanName}`;
+        const ncConfig = await getActiveNextcloudConfig();
+        const rootDir = (ncConfig.rootFolder || '/mtc-dam-uploads').replace(/\/+$/, '') || '/mtc-dam-uploads';
+        const nextcloudPath = `${rootDir}/${id}/v${nextVersionNum}_${timestamp}_${cleanName}`;
         console.log(`Starting Nextcloud upload for version ${nextVersionNum} to ${nextcloudPath}...`);
         await uploadAsset(nextcloudPath, buffer);
 

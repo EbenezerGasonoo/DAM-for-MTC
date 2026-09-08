@@ -27,14 +27,14 @@ export interface NextcloudConfig {
 }
 
 // Local fallback storage directory
-const LOCAL_STORAGE_DIR = path.join(process.cwd(), 'public', 'storage');
+export const LOCAL_STORAGE_DIR = path.join(process.cwd(), 'public', 'storage');
 
 async function ensureLocalDir(filePath: string) {
     const dir = path.dirname(filePath);
     await fs.promises.mkdir(dir, { recursive: true });
 }
 
-function getLocalPath(cloudPath: string): string {
+export function getLocalPath(cloudPath: string): string {
     const sanitized = cloudPath.replace(/^\/+/, '');
     return path.join(LOCAL_STORAGE_DIR, sanitized);
 }

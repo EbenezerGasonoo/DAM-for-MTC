@@ -134,6 +134,35 @@ export default function SettingsPage() {
     const [ncSyncing, setNcSyncing] = useState(false);
     const [ncSyncResult, setNcSyncResult] = useState<{ type: 'success' | 'error'; message: string; details?: any } | null>(null);
 
+    // Nextcloud Folder Explorer & Target Chooser State
+    const [isFolderExplorerOpen, setIsFolderExplorerOpen] = useState(false);
+    const [explorerPath, setExplorerPath] = useState('/');
+    const [explorerLoading, setExplorerLoading] = useState(false);
+    const [explorerData, setExplorerData] = useState<{
+        isUsingNextcloud: boolean;
+        serverUrl: string;
+        currentPath: string;
+        parentPath: string | null;
+        breadcrumbs: Array<{ name: string; path: string }>;
+        folders: Array<{ name: string; path: string; lastmod: string }>;
+        files: Array<{
+            name: string;
+            path: string;
+            size: number;
+            sizeFormatted: string;
+            type: string;
+            mime: string;
+            lastmod: string;
+        }>;
+        totalFolders: number;
+        totalFiles: number;
+    } | null>(null);
+    const [explorerError, setExplorerError] = useState<string | null>(null);
+    const [explorerSearch, setExplorerSearch] = useState('');
+    const [showCreateFolder, setShowCreateFolder] = useState(false);
+    const [newFolderName, setNewFolderName] = useState('');
+    const [creatingFolder, setCreatingFolder] = useState(false);
+
     // Watermark Profile state
     const [watermarkName, setWatermarkName] = useState('MTC Internal Confidential Burn-in');
     const [watermarkTemplate, setWatermarkTemplate] = useState('CONFIDENTIAL — MTC BROADCAST PIPELINE — {USER}');
@@ -415,6 +444,66 @@ export default function SettingsPage() {
             });
         } finally {
             setNcSyncing(false);
+        }
+    };
+
+    const fetchFolders = async (targetPath: string = '/', action?: string, folderName?: string) => {
+        setExplorerLoading(true);
+        setExplorerError(null);
+        try {
+            const res = await fetch('/api/settings/nextcloud/folders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    path: targetPath,
+                    url: ncUrl,
+                    username: ncUsername,
+                    password: ncPassword,
+                    action,
+                    newFolderName: folderName,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setExplorerData(data);
+                setExplorerPath(data.currentPath);
+                if (action === 'create-folder') {
+                    setShowCreateFolder(false);
+                    setNewFolderName('');
+                }
+            } else {
+                setExplorerError(data.error || 'Failed to scan Nextcloud folders');
+            }
+        } catch (err: any) {
+            setExplorerError(err?.message || 'Network error scanning folders');
+        } finally {
+            setExplorerLoading(false);
+        }
+    };
+
+    const handleOpenExplorer = () => {
+        setIsFolderExplorerOpen(true);
+        setExplorerSearch('');
+        fetchFolders(ncRootFolder || '/');
+    };
+
+    const handleSelectTargetFolder = (selectedPath: string) => {
+        setNcRootFolder(selectedPath);
+        setIsFolderExplorerOpen(false);
+        setNcFeedback({
+            type: 'success',
+            message: `Target Storage Folder set to "${selectedPath}". Click "Save & Connect Server" to commit.`,
+        });
+    };
+
+    const handleCreateFolder = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newFolderName.trim()) return;
+        setCreatingFolder(true);
+        try {
+            await fetchFolders(explorerPath, 'create-folder', newFolderName.trim());
+        } finally {
+            setCreatingFolder(false);
         }
     };
 
@@ -2189,19 +2278,53 @@ export default function SettingsPage() {
                                     </div>
 
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
-                                            Target Storage Folder in Nextcloud
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={ncRootFolder}
-                                            onChange={e => setNcRootFolder(e.target.value)}
-                                            placeholder="/mtc-dam-uploads"
-                                            className="form-control"
-                                            style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.85rem' }}
-                                        />
-                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '4px', display: 'block' }}>
-                                            Directory created inside your Nextcloud account for all media stems, proxies, and ingested masters.
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                                            <label style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>
+                                                Target Storage Folder in Nextcloud
+                                            </label>
+                                            <span style={{
+                                                fontSize: '0.72rem',
+                                                color: '#A7F3D0',
+                                                backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                                border: '1px solid rgba(56, 102, 66, 0.5)',
+                                                padding: '2px 8px',
+                                                borderRadius: '12px',
+                                                fontFamily: 'monospace',
+                                            }}>
+                                                Active: {ncRootFolder || '/'}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <input
+                                                type="text"
+                                                value={ncRootFolder}
+                                                onChange={e => setNcRootFolder(e.target.value)}
+                                                placeholder="/mtc-dam-uploads"
+                                                className="form-control"
+                                                style={{ flex: 1, fontFamily: 'monospace', fontSize: '0.85rem' }}
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleOpenExplorer}
+                                                className="btn btn-primary"
+                                                style={{
+                                                    fontSize: '0.82rem',
+                                                    padding: '8px 14px',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '6px',
+                                                    whiteSpace: 'nowrap',
+                                                    backgroundColor: 'var(--mtc-hunter-green)',
+                                                    border: '1px solid rgba(255, 235, 204, 0.25)',
+                                                }}
+                                                title="Scan remote Nextcloud server, see existing files, and choose target folder"
+                                            >
+                                                <span>📂</span>
+                                                <span>Scan & Choose Folder</span>
+                                            </button>
+                                        </div>
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '6px', display: 'block' }}>
+                                            Click <strong>Scan & Choose Folder</strong> to scan the remote server, view existing files and directories, and select or create the target storage folder.
                                         </span>
                                     </div>
 
@@ -2369,6 +2492,563 @@ export default function SettingsPage() {
                                 </div>
                             )}
                         </section>
+                    </div>
+                )}
+
+                {/* MODAL: NEXTCLOUD FOLDER EXPLORER & TARGET CHOOSER */}
+                {isFolderExplorerOpen && (
+                    <div style={{
+                        position: 'fixed',
+                        inset: 0,
+                        backgroundColor: 'rgba(10, 15, 16, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        zIndex: 1000,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '20px',
+                    }}>
+                        <div style={{
+                            backgroundColor: '#1D2729',
+                            borderRadius: '16px',
+                            border: '1px solid rgba(202, 222, 223, 0.25)',
+                            boxShadow: '0 24px 60px rgba(0, 0, 0, 0.65)',
+                            width: '100%',
+                            maxWidth: '920px',
+                            maxHeight: '90vh',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            overflow: 'hidden',
+                        }}>
+                            {/* Modal Header */}
+                            <div style={{
+                                padding: '18px 24px',
+                                borderBottom: '1px solid var(--border-color)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                backgroundColor: 'rgba(20, 28, 30, 0.85)',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{
+                                        width: '38px',
+                                        height: '38px',
+                                        borderRadius: '10px',
+                                        backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                        border: '1px solid rgba(56, 102, 66, 0.5)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '1.25rem',
+                                    }}>
+                                        📁
+                                    </div>
+                                    <div>
+                                        <h4 style={{ margin: 0, fontSize: '1.05rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', fontFamily: 'var(--font-brand)' }}>
+                                            Nextcloud Storage Folder Explorer
+                                        </h4>
+                                        <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                            Scan remote directories, see existing media files, and choose your destination storage target.
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => setIsFolderExplorerOpen(false)}
+                                    style={{
+                                        background: 'none',
+                                        border: 'none',
+                                        color: 'var(--text-muted)',
+                                        fontSize: '1.4rem',
+                                        cursor: 'pointer',
+                                        padding: '4px',
+                                        lineHeight: 1,
+                                    }}
+                                >
+                                    ✕
+                                </button>
+                            </div>
+
+                            {/* Breadcrumbs & Navigation Bar */}
+                            <div style={{
+                                padding: '10px 20px',
+                                backgroundColor: '#161F21',
+                                borderBottom: '1px solid var(--border-color)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: '8px',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    {explorerData?.parentPath !== null && explorerData?.parentPath !== undefined && (
+                                        <button
+                                            onClick={() => fetchFolders(explorerData.parentPath!)}
+                                            disabled={explorerLoading}
+                                            style={{
+                                                background: 'rgba(202, 222, 223, 0.1)',
+                                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                borderRadius: '6px',
+                                                padding: '4px 10px',
+                                                fontSize: '0.76rem',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                            }}
+                                            title="Go up to parent folder"
+                                        >
+                                            <span>⬆</span> Up
+                                        </button>
+                                    )}
+
+                                    {/* Breadcrumbs trail */}
+                                    {(explorerData?.breadcrumbs || [{ name: 'Root (/)', path: '/' }]).map((crumb, idx, arr) => (
+                                        <div key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <button
+                                                onClick={() => fetchFolders(crumb.path)}
+                                                disabled={explorerLoading}
+                                                style={{
+                                                    background: idx === arr.length - 1 ? 'rgba(56, 102, 66, 0.35)' : 'transparent',
+                                                    border: idx === arr.length - 1 ? '1px solid var(--mtc-hunter-green)' : '1px solid transparent',
+                                                    color: idx === arr.length - 1 ? 'var(--mtc-cornsilk)' : 'var(--text-muted)',
+                                                    borderRadius: '6px',
+                                                    padding: '4px 8px',
+                                                    fontSize: '0.78rem',
+                                                    cursor: 'pointer',
+                                                    fontWeight: idx === arr.length - 1 ? 700 : 500,
+                                                    fontFamily: 'monospace',
+                                                }}
+                                            >
+                                                {crumb.name}
+                                            </button>
+                                            {idx < arr.length - 1 && <span style={{ color: 'var(--text-dim)', fontSize: '0.75rem' }}>/</span>}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <button
+                                        onClick={() => setShowCreateFolder(!showCreateFolder)}
+                                        style={{
+                                            background: 'rgba(56, 102, 66, 0.25)',
+                                            border: '1px solid rgba(56, 102, 66, 0.5)',
+                                            color: '#A7F3D0',
+                                            borderRadius: '6px',
+                                            padding: '5px 10px',
+                                            fontSize: '0.76rem',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        <span>+</span> New Folder
+                                    </button>
+                                    <button
+                                        onClick={() => fetchFolders(explorerPath)}
+                                        disabled={explorerLoading}
+                                        style={{
+                                            background: 'rgba(202, 222, 223, 0.08)',
+                                            border: '1px solid var(--border-color)',
+                                            color: 'var(--mtc-cornsilk)',
+                                            borderRadius: '6px',
+                                            padding: '5px 10px',
+                                            fontSize: '0.76rem',
+                                            cursor: 'pointer',
+                                        }}
+                                        title="Rescan current directory"
+                                    >
+                                        {explorerLoading ? 'Scanning...' : '↻ Rescan'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Inline New Folder Form */}
+                            {showCreateFolder && (
+                                <form
+                                    onSubmit={handleCreateFolder}
+                                    style={{
+                                        padding: '10px 20px',
+                                        backgroundColor: 'rgba(56, 102, 66, 0.15)',
+                                        borderBottom: '1px solid rgba(56, 102, 66, 0.3)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                    }}
+                                >
+                                    <span style={{ fontSize: '0.8rem', color: 'var(--mtc-cornsilk)', fontWeight: 600 }}>
+                                        Create Folder in <code style={{ color: '#A7F3D0' }}>{explorerPath}</code>:
+                                    </span>
+                                    <input
+                                        type="text"
+                                        value={newFolderName}
+                                        onChange={(e) => setNewFolderName(e.target.value)}
+                                        placeholder="folder-name"
+                                        autoFocus
+                                        style={{
+                                            flex: 1,
+                                            maxWidth: '260px',
+                                            padding: '6px 10px',
+                                            backgroundColor: 'var(--bg-color)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            color: 'var(--mtc-cornsilk)',
+                                            fontSize: '0.8rem',
+                                            outline: 'none',
+                                        }}
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={creatingFolder || !newFolderName.trim()}
+                                        className="btn btn-primary"
+                                        style={{ fontSize: '0.76rem', padding: '6px 14px' }}
+                                    >
+                                        {creatingFolder ? 'Creating...' : 'Create Folder'}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowCreateFolder(false);
+                                            setNewFolderName('');
+                                        }}
+                                        className="btn btn-secondary"
+                                        style={{ fontSize: '0.76rem', padding: '6px 10px' }}
+                                    >
+                                        Cancel
+                                    </button>
+                                </form>
+                            )}
+
+                            {/* Filter Search Input */}
+                            <div style={{ padding: '8px 20px', borderBottom: '1px solid var(--border-color)', backgroundColor: '#141C1E' }}>
+                                <input
+                                    type="text"
+                                    value={explorerSearch}
+                                    onChange={(e) => setExplorerSearch(e.target.value)}
+                                    placeholder="Search folders and files in current view..."
+                                    style={{
+                                        width: '100%',
+                                        padding: '6px 12px',
+                                        backgroundColor: 'rgba(29, 39, 41, 0.6)',
+                                        border: '1px solid rgba(202, 222, 223, 0.15)',
+                                        borderRadius: '6px',
+                                        color: 'var(--mtc-cornsilk)',
+                                        fontSize: '0.8rem',
+                                        outline: 'none',
+                                    }}
+                                />
+                            </div>
+
+                            {/* Main Explorer Content Area */}
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', minHeight: '340px' }}>
+                                {explorerLoading ? (
+                                    <div style={{
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        padding: '60px 20px',
+                                        color: 'var(--text-muted)',
+                                    }}>
+                                        <div style={{
+                                            width: '40px',
+                                            height: '40px',
+                                            borderRadius: '50%',
+                                            border: '3px solid rgba(202, 222, 223, 0.2)',
+                                            borderTopColor: 'var(--mtc-hunter-green)',
+                                            animation: 'spin 0.8s linear infinite',
+                                            marginBottom: '16px',
+                                        }} />
+                                        <div style={{ fontSize: '0.9rem', color: 'var(--mtc-cornsilk)', fontWeight: 600 }}>
+                                            Scanning Nextcloud Storage...
+                                        </div>
+                                        <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                            Querying <code style={{ color: '#A7F3D0' }}>{explorerPath}</code> via WebDAV
+                                        </div>
+                                    </div>
+                                ) : explorerError ? (
+                                    <div style={{
+                                        padding: '24px',
+                                        borderRadius: '8px',
+                                        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                                        color: '#FCA5A5',
+                                        textAlign: 'center',
+                                    }}>
+                                        <div style={{ fontSize: '1.5rem', marginBottom: '8px' }}>⚠️</div>
+                                        <div style={{ fontWeight: 600, fontSize: '0.92rem', marginBottom: '6px' }}>
+                                            Scan Error
+                                        </div>
+                                        <p style={{ margin: '0 0 16px 0', fontSize: '0.82rem' }}>
+                                            {explorerError}
+                                        </p>
+                                        <button
+                                            onClick={() => fetchFolders('/')}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.8rem', padding: '6px 14px' }}
+                                        >
+                                            Return to Root (/)
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 1fr) minmax(320px, 1.2fr)', gap: '20px' }}>
+                                        {/* LEFT COLUMN: FOLDERS */}
+                                        <div style={{
+                                            backgroundColor: 'rgba(20, 28, 30, 0.5)',
+                                            borderRadius: '10px',
+                                            border: '1px solid var(--border-color)',
+                                            padding: '14px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                        }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                marginBottom: '12px',
+                                                borderBottom: '1px solid var(--border-color)',
+                                                paddingBottom: '8px',
+                                            }}>
+                                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                                    📁 Subfolders ({explorerData?.folders?.filter(f => !explorerSearch || f.name.toLowerCase().includes(explorerSearch.toLowerCase())).length ?? 0})
+                                                </span>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                                    Click to open or select
+                                                </span>
+                                            </div>
+
+                                            <div style={{ flex: 1, overflowY: 'auto', maxHeight: '360px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                {(() => {
+                                                    const folderList = (explorerData?.folders || []).filter(f =>
+                                                        !explorerSearch || f.name.toLowerCase().includes(explorerSearch.toLowerCase())
+                                                    );
+                                                    if (folderList.length === 0) {
+                                                        return (
+                                                            <div style={{ padding: '30px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                                                {explorerSearch ? 'No folders match search.' : 'No subfolders in this directory.'}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return folderList.map(folder => (
+                                                        <div
+                                                            key={folder.path}
+                                                            style={{
+                                                                padding: '8px 10px',
+                                                                borderRadius: '6px',
+                                                                backgroundColor: ncRootFolder === folder.path ? 'rgba(56, 102, 66, 0.25)' : 'rgba(29, 39, 41, 0.6)',
+                                                                border: ncRootFolder === folder.path ? '1px solid var(--mtc-hunter-green)' : '1px solid rgba(202, 222, 223, 0.12)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'space-between',
+                                                                gap: '8px',
+                                                                transition: 'all 0.15s',
+                                                            }}
+                                                        >
+                                                            <div
+                                                                onClick={() => fetchFolders(folder.path)}
+                                                                style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1, minWidth: 0 }}
+                                                                title={`Open ${folder.name}`}
+                                                            >
+                                                                <span style={{ fontSize: '1.1rem' }}>📁</span>
+                                                                <span style={{
+                                                                    fontSize: '0.84rem',
+                                                                    color: 'var(--mtc-cornsilk)',
+                                                                    fontWeight: 600,
+                                                                    overflow: 'hidden',
+                                                                    textOverflow: 'ellipsis',
+                                                                    whiteSpace: 'nowrap',
+                                                                }}>
+                                                                    {folder.name}
+                                                                </span>
+                                                            </div>
+                                                            <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                                                <button
+                                                                    onClick={() => fetchFolders(folder.path)}
+                                                                    style={{
+                                                                        background: 'transparent',
+                                                                        border: '1px solid var(--border-color)',
+                                                                        color: 'var(--text-muted)',
+                                                                        borderRadius: '4px',
+                                                                        padding: '3px 8px',
+                                                                        fontSize: '0.72rem',
+                                                                        cursor: 'pointer',
+                                                                    }}
+                                                                    title="Open folder"
+                                                                >
+                                                                    Open ➔
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleSelectTargetFolder(folder.path)}
+                                                                    className="btn btn-primary"
+                                                                    style={{
+                                                                        fontSize: '0.72rem',
+                                                                        padding: '3px 8px',
+                                                                        backgroundColor: 'var(--mtc-hunter-green)',
+                                                                    }}
+                                                                    title="Choose this folder as target storage"
+                                                                >
+                                                                    🎯 Select
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ));
+                                                })()}
+                                            </div>
+                                        </div>
+
+                                        {/* RIGHT COLUMN: FILES IN CURRENT FOLDER ("SEE THE FILES") */}
+                                        <div style={{
+                                            backgroundColor: 'rgba(20, 28, 30, 0.5)',
+                                            borderRadius: '10px',
+                                            border: '1px solid var(--border-color)',
+                                            padding: '14px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                        }}>
+                                            <div style={{
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                marginBottom: '12px',
+                                                borderBottom: '1px solid var(--border-color)',
+                                                paddingBottom: '8px',
+                                            }}>
+                                                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                                                    📄 Files in this Folder ({explorerData?.files?.filter(f => !explorerSearch || f.name.toLowerCase().includes(explorerSearch.toLowerCase())).length ?? 0})
+                                                </span>
+                                                <span style={{ fontSize: '0.72rem', color: '#A7F3D0', fontFamily: 'monospace' }}>
+                                                    {explorerPath}
+                                                </span>
+                                            </div>
+
+                                            <div style={{ flex: 1, overflowY: 'auto', maxHeight: '360px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                {(() => {
+                                                    const fileList = (explorerData?.files || []).filter(f =>
+                                                        !explorerSearch || f.name.toLowerCase().includes(explorerSearch.toLowerCase())
+                                                    );
+                                                    if (fileList.length === 0) {
+                                                        return (
+                                                            <div style={{ padding: '30px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                                                {explorerSearch ? 'No files match search.' : 'No files found in this directory.'}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return fileList.map(file => {
+                                                        const typeIcon = file.type === 'video' ? '🎬'
+                                                            : file.type === 'image' ? '🖼️'
+                                                            : file.type === 'audio' ? '🎵'
+                                                            : file.type === 'document' ? '📄'
+                                                            : '📦';
+                                                        return (
+                                                            <div
+                                                                key={file.path}
+                                                                style={{
+                                                                    padding: '8px 10px',
+                                                                    borderRadius: '6px',
+                                                                    backgroundColor: 'rgba(29, 39, 41, 0.6)',
+                                                                    border: '1px solid rgba(202, 222, 223, 0.12)',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'space-between',
+                                                                    gap: '10px',
+                                                                }}
+                                                            >
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                                                                    <span style={{ fontSize: '1rem' }}>{typeIcon}</span>
+                                                                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                        <div style={{
+                                                                            fontSize: '0.82rem',
+                                                                            color: 'var(--mtc-cornsilk)',
+                                                                            fontWeight: 500,
+                                                                            overflow: 'hidden',
+                                                                            textOverflow: 'ellipsis',
+                                                                            whiteSpace: 'nowrap',
+                                                                        }}>
+                                                                            {file.name}
+                                                                        </div>
+                                                                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                                                            {file.sizeFormatted} · {new Date(file.lastmod).toLocaleDateString()}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                <span style={{
+                                                                    fontSize: '0.68rem',
+                                                                    padding: '2px 6px',
+                                                                    borderRadius: '4px',
+                                                                    backgroundColor: 'rgba(202, 222, 223, 0.1)',
+                                                                    color: 'var(--text-muted)',
+                                                                    textTransform: 'uppercase',
+                                                                    fontWeight: 600,
+                                                                    flexShrink: 0,
+                                                                }}>
+                                                                    {file.type}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    });
+                                                })()}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Modal Footer */}
+                            <div style={{
+                                padding: '16px 24px',
+                                borderTop: '1px solid var(--border-color)',
+                                backgroundColor: 'rgba(20, 28, 30, 0.9)',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: '12px',
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>Target Directory:</span>
+                                    <code style={{
+                                        color: 'var(--mtc-cornsilk)',
+                                        backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                        border: '1px solid var(--mtc-hunter-green)',
+                                        padding: '4px 10px',
+                                        borderRadius: '6px',
+                                        fontSize: '0.85rem',
+                                        fontWeight: 700,
+                                    }}>
+                                        {explorerPath}
+                                    </code>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleSelectTargetFolder(explorerPath)}
+                                        className="btn btn-primary"
+                                        style={{
+                                            fontSize: '0.84rem',
+                                            padding: '8px 18px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            backgroundColor: 'var(--mtc-hunter-green)',
+                                        }}
+                                    >
+                                        <span>🎯</span>
+                                        <span>Choose "{explorerPath}" as Target</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsFolderExplorerOpen(false)}
+                                        className="btn btn-secondary"
+                                        style={{ fontSize: '0.84rem', padding: '8px 16px' }}
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

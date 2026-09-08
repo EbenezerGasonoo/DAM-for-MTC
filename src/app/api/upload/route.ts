@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadAsset } from '@/lib/nextcloud';
+import { uploadAsset, getActiveNextcloudConfig } from '@/lib/nextcloud';
 import { prisma } from '@/lib/prisma';
 import { getAuthFromCookies } from '@/lib/auth';
 import { 
@@ -73,7 +73,9 @@ export async function POST(req: NextRequest) {
 
         const timestamp = Date.now();
         const cleanName = file.name.replace(/[^a-zA-Z0-9.\-]/g, '_');
-        const nextcloudPath = `/mtc-dam-uploads/${timestamp}_${cleanName}`;
+        const ncConfig = await getActiveNextcloudConfig();
+        const rootDir = (ncConfig.rootFolder || '/mtc-dam-uploads').replace(/\/+$/, '') || '/mtc-dam-uploads';
+        const nextcloudPath = `${rootDir}/${timestamp}_${cleanName}`;
 
         console.log(`Starting media storage upload to ${nextcloudPath} (${buffer.length} bytes)...`);
         await uploadAsset(nextcloudPath, buffer);
