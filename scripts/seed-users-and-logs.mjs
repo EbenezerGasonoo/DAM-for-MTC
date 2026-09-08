@@ -9,6 +9,7 @@ async function main() {
     const adminHash = await bcrypt.hash('Admin@Mtc2026!', 12);
     const editorHash = await bcrypt.hash('Editor@Mtc2026!', 12);
     const producerHash = await bcrypt.hash('Producer@Mtc2026!', 12);
+    const viewerHash = await bcrypt.hash('Viewer@Mtc2026!', 12);
 
     // 1. Seed / Upsert Admin Accounts
     const adminUsersData = [
@@ -106,6 +107,23 @@ async function main() {
         },
     });
     console.log(`✓ Producer User: ${producer.name} (${producer.email}) [ROLE: ${producer.role}]`);
+
+    // 3b. Seed / Upsert Viewer Account
+    const viewer = await prisma.user.upsert({
+        where: { email: 'viewer@mtc.com' },
+        update: {
+            name: 'Hannah Wells - Client & Reviewer',
+            role: 'VIEWER',
+            password: viewerHash,
+        },
+        create: {
+            email: 'viewer@mtc.com',
+            name: 'Hannah Wells - Client & Reviewer',
+            role: 'VIEWER',
+            password: viewerHash,
+        },
+    });
+    console.log(`✓ Viewer User: ${viewer.name} (${viewer.email}) [ROLE: ${viewer.role}]`);
 
     // 4. Ensure Broadcast Projects exist for context
     const mainAdmin = adminMap['admin@mtc.com'];
