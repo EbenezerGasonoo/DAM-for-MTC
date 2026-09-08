@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import { useBranding } from '@/components/BrandingContext';
+import { useAuth } from '@/lib/auth-context';
 import MtcLogo, { MtcLogoIcon } from '@/components/MtcLogo';
 
 interface ActivityItem {
@@ -47,8 +48,51 @@ const rbacMatrix = [
 ];
 
 export default function SettingsPage() {
-    const { colors, updateColor, saveColors, resetToDefaults, hasUnsavedChanges } = useBranding();
+    const {
+        colors,
+        updateColor,
+        saveColors,
+        resetToDefaults,
+        hasUnsavedChanges,
+        brandName,
+        brandShortName,
+        brandTagline,
+        brandDescription,
+        brandLogoUrl,
+        updateBrandIdentity,
+        uploadLogo,
+        removeLogo,
+        isLoadingBranding,
+    } = useBranding();
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'ADMIN';
+
     const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud'>('brand');
+
+    // Brand Identity form state
+    const [formBrandName, setFormBrandName] = useState(brandName);
+    const [formBrandShortName, setFormBrandShortName] = useState(brandShortName);
+    const [formBrandTagline, setFormBrandTagline] = useState(brandTagline);
+    const [formBrandDescription, setFormBrandDescription] = useState(brandDescription);
+    const [brandSaving, setBrandSaving] = useState(false);
+    const [brandFeedback, setBrandFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    // Sync form state when branding loads from server
+    useEffect(() => {
+        setFormBrandName(brandName);
+        setFormBrandShortName(brandShortName);
+        setFormBrandTagline(brandTagline);
+        setFormBrandDescription(brandDescription);
+    }, [brandName, brandShortName, brandTagline, brandDescription]);
+
+    // Logo upload state
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [selectedLogoFile, setSelectedLogoFile] = useState<File | null>(null);
+    const [logoPreviewUrl, setLogoPreviewUrl] = useState<string | null>(null);
+    const [logoUploading, setLogoUploading] = useState(false);
+    const [logoRemoving, setLogoRemoving] = useState(false);
+    const [logoFeedback, setLogoFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+    const [isDragOver, setIsDragOver] = useState(false);
 
     // User Management state
     const [users, setUsers] = useState<UserItem[]>([]);
@@ -105,6 +149,140 @@ export default function SettingsPage() {
         updateColor('text', '#FFEBCC');
         updateColor('textMuted', '#CADEDF');
         updateColor('border', 'rgba(202, 222, 223, 0.18)');
+    };
+
+    const handleFileSelect = (file: File) => {
+        setLogoFeedback(null);
+        const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
+        if (!validTypes.includes(file.type)) {
+            setLogoFeedback({
+                type: 'error',
+                message: 'Invalid file type. Please upload a PNG, SVG, JPG, or WebP image.',
+            });
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            setLogoFeedback({
+                type: 'error',
+                message: 'File size exceeds 5MB limit. Please upload a smaller image file.',
+            });
+            return;
+        }
+
+        setSelectedLogoFile(file);
+        const objectUrl = URL.createObjectURL(file);
+        setLogoPreviewUrl(objectUrl);
+    };
+
+    const handleUploadLogo = async () => {
+        if (!selectedLogoFile) return;
+        setLogoUploading(true);
+        setLogoFeedback(null);
+        try {
+            const result = await uploadLogo(selectedLogoFile);
+            if (result.success) {
+                setLogoFeedback({
+                    type: 'success',
+                    message: 'Brand logo uploaded and published across all systems successfully!',
+                });
+                setSelectedLogoFile(null);
+                setLogoPreviewUrl(null);
+            } else {
+                setLogoFeedback({
+                    type: 'error',
+                    message: result.error || 'Failed to upload logo',
+                });
+            }
+        } catch (err: any) {
+            setLogoFeedback({
+                type: 'error',
+                message: err?.message || 'Error uploading logo',
+            });
+        } finally {
+            setLogoUploading(false);
+        }
+    };
+
+    const handleRemoveLogo = async () => {
+        if (!confirm('Are you sure you want to revert to the default vector logo emblem?')) return;
+        setLogoRemoving(true);
+        setLogoFeedback(null);
+        try {
+            const result = await removeLogo();
+            if (result.success) {
+                setSelectedLogoFile(null);
+                setLogoPreviewUrl(null);
+                setLogoFeedback({
+                    type: 'success',
+                    message: 'Custom logo removed. Default MTC vector emblem restored.',
+                });
+            } else {
+                setLogoFeedback({
+                    type: 'error',
+                    message: result.error || 'Failed to reset logo',
+                });
+            }
+        } catch (err: any) {
+            setLogoFeedback({
+                type: 'error',
+                message: err?.message || 'Error resetting logo',
+            });
+        } finally {
+            setLogoRemoving(false);
+        }
+    };
+
+    const handleSaveBrandIdentity = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setBrandSaving(true);
+        setBrandFeedback(null);
+        try {
+            // Update context state immediately
+            updateBrandIdentity({
+                brandName: formBrandName,
+                brandShortName: formBrandShortName,
+                brandTagline: formBrandTagline,
+                brandDescription: formBrandDescription,
+            });
+
+            // Save to server
+            const res = await fetch('/api/settings/branding', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    brandName: formBrandName,
+                    brandShortName: formBrandShortName,
+                    brandTagline: formBrandTagline,
+                    brandDescription: formBrandDescription,
+                }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setBrandFeedback({
+                    type: 'success',
+                    message: 'Brand identity labels updated and persisted successfully!',
+                });
+            } else {
+                setBrandFeedback({
+                    type: 'error',
+                    message: data.error || 'Failed to save brand identity',
+                });
+            }
+        } catch (err: any) {
+            setBrandFeedback({
+                type: 'error',
+                message: err?.message || 'Network error saving brand identity',
+            });
+        } finally {
+            setBrandSaving(false);
+        }
+    };
+
+    const handleResetIdentityDefaults = () => {
+        setFormBrandName('Mountain Top Communications');
+        setFormBrandShortName('MTC');
+        setFormBrandTagline('Studio-Grade Digital Asset Management');
+        setFormBrandDescription('The official content brain for Mountain Top Communications — delivering values-based, educational, and inspiring media across Ghana and West Africa.');
     };
 
     const fetchAuditLogs = async () => {
@@ -411,10 +589,572 @@ export default function SettingsPage() {
                     ))}
                 </div>
 
-                {/* TAB 1: BRAND IDENTITY */}
+                {/* TAB 1: BRAND IDENTITY & LOGO */}
                 {activeTab === 'brand' && (
                     <>
-                        {/* Official Brand Guidelines Reference Card */}
+                        {!isAdmin && (
+                            <div style={{
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                marginBottom: '20px',
+                                backgroundColor: 'rgba(202, 222, 223, 0.08)',
+                                border: '1px solid rgba(202, 222, 223, 0.2)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px',
+                                fontSize: '0.84rem',
+                                color: 'var(--mtc-cornsilk)',
+                            }}>
+                                <span style={{ fontSize: '1.1rem' }}>🛡️</span>
+                                <div>
+                                    <strong>Read-Only Access:</strong> Brand identity labeling and logo upload require Administrator privileges. You can inspect the current brand settings below.
+                                </div>
+                            </div>
+                        )}
+
+                        {/* SECTION 1: LOGO UPLOAD & MANAGEMENT */}
+                        <section className="card" style={{ marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                                        <span style={{ fontSize: '1.3rem' }}>🖼️</span>
+                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                                            Brand Logo & Visual Emblem
+                                        </h3>
+                                    </div>
+                                    <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', maxWidth: '640px' }}>
+                                        Upload an official brand logo for your organization (PNG, SVG, JPG, WebP up to 5MB). The custom logo is deployed dynamically across the sidebar navigation, login portal, platform header, and proxy watermarks.
+                                    </p>
+                                </div>
+
+                                {/* Current Logo Status Badge */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {brandLogoUrl ? (
+                                        <span style={{
+                                            padding: '6px 12px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600,
+                                            backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                            border: '1px solid var(--mtc-hunter-green)',
+                                            color: '#A7F3D0',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10B981', display: 'inline-block' }} />
+                                            Custom Brand Logo Active
+                                        </span>
+                                    ) : (
+                                        <span style={{
+                                            padding: '6px 12px',
+                                            borderRadius: '20px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600,
+                                            backgroundColor: 'rgba(202, 222, 223, 0.12)',
+                                            border: '1px solid rgba(202, 222, 223, 0.25)',
+                                            color: 'var(--mtc-platinum)',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#6EE7B7', display: 'inline-block' }} />
+                                            Default Vector Emblem Active
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+
+                            {logoFeedback && (
+                                <div style={{
+                                    padding: '10px 14px',
+                                    borderRadius: '6px',
+                                    marginBottom: '16px',
+                                    fontSize: '0.84rem',
+                                    backgroundColor: logoFeedback.type === 'success' ? 'rgba(56, 102, 66, 0.25)' : 'rgba(239, 68, 68, 0.2)',
+                                    border: '1px solid ' + (logoFeedback.type === 'success' ? 'var(--mtc-hunter-green)' : 'rgba(239, 68, 68, 0.4)'),
+                                    color: logoFeedback.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                }}>
+                                    {logoFeedback.message}
+                                </div>
+                            )}
+
+                            {/* Two-column layout: Preview & Dropzone */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) 1fr', gap: '24px', alignItems: 'stretch' }}>
+                                {/* Left: Active / Staged Logo Display Box */}
+                                <div style={{
+                                    padding: '20px',
+                                    backgroundColor: 'var(--bg-color)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-color)',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'space-between',
+                                }}>
+                                    <div>
+                                        <div style={{ fontSize: '0.76rem', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '12px' }}>
+                                            {selectedLogoFile ? 'Pending Upload Preview' : brandLogoUrl ? 'Active Published Logo' : 'Default System Vector Emblem'}
+                                        </div>
+
+                                        <div style={{
+                                            minHeight: '140px',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center',
+                                            padding: '16px',
+                                            backgroundColor: '#111718',
+                                            borderRadius: '8px',
+                                            border: '1px dashed rgba(202, 222, 223, 0.2)',
+                                            backgroundImage: 'radial-gradient(rgba(202, 222, 223, 0.08) 1px, transparent 1px)',
+                                            backgroundSize: '12px 12px',
+                                            overflow: 'hidden',
+                                        }}>
+                                            {logoPreviewUrl ? (
+                                                <img
+                                                    src={logoPreviewUrl}
+                                                    alt="Staged Logo Preview"
+                                                    style={{ maxHeight: '100px', maxWidth: '100%', objectFit: 'contain' }}
+                                                />
+                                            ) : brandLogoUrl ? (
+                                                <img
+                                                    src={brandLogoUrl}
+                                                    alt="Brand Logo"
+                                                    style={{ maxHeight: '100px', maxWidth: '100%', objectFit: 'contain' }}
+                                                />
+                                            ) : (
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                                                    <MtcLogo variant="horizontal" size="md" theme="cornsilk" />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {selectedLogoFile && (
+                                            <div style={{ marginTop: '10px', fontSize: '0.78rem', color: '#FFD180' }}>
+                                                Selected: <strong>{selectedLogoFile.name}</strong> ({(selectedLogoFile.size / 1024).toFixed(1)} KB)
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div style={{ marginTop: '16px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        {selectedLogoFile ? (
+                                            <>
+                                                <button
+                                                    onClick={handleUploadLogo}
+                                                    disabled={logoUploading || !isAdmin}
+                                                    className="btn btn-primary"
+                                                    style={{ flex: 1, fontSize: '0.82rem', padding: '8px 12px' }}
+                                                >
+                                                    {logoUploading ? 'Uploading...' : 'Confirm & Save Logo'}
+                                                </button>
+                                                <button
+                                                    onClick={() => {
+                                                        setSelectedLogoFile(null);
+                                                        setLogoPreviewUrl(null);
+                                                    }}
+                                                    className="btn btn-secondary"
+                                                    style={{ fontSize: '0.82rem', padding: '8px 12px' }}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </>
+                                        ) : (
+                                            brandLogoUrl && (
+                                                <button
+                                                    onClick={handleRemoveLogo}
+                                                    disabled={logoRemoving || !isAdmin}
+                                                    style={{
+                                                        background: 'transparent',
+                                                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                                                        color: '#FCA5A5',
+                                                        borderRadius: 'var(--radius-md)',
+                                                        padding: '8px 12px',
+                                                        fontSize: '0.8rem',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s',
+                                                        width: '100%',
+                                                    }}
+                                                >
+                                                    {logoRemoving ? 'Resetting...' : 'Revert to Default Vector Logo'}
+                                                </button>
+                                            )
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Right: Drag & Drop Ingest Target */}
+                                <div
+                                    onDragOver={(e) => {
+                                        e.preventDefault();
+                                        if (isAdmin) setIsDragOver(true);
+                                    }}
+                                    onDragLeave={() => setIsDragOver(false)}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        setIsDragOver(false);
+                                        if (!isAdmin) return;
+                                        if (e.dataTransfer.files?.[0]) {
+                                            handleFileSelect(e.dataTransfer.files[0]);
+                                        }
+                                    }}
+                                    onClick={() => {
+                                        if (isAdmin && fileInputRef.current) {
+                                            fileInputRef.current.click();
+                                        }
+                                    }}
+                                    style={{
+                                        border: isDragOver
+                                            ? '2px dashed var(--mtc-hunter-green)'
+                                            : '2px dashed rgba(202, 222, 223, 0.25)',
+                                        backgroundColor: isDragOver
+                                            ? 'rgba(56, 102, 66, 0.12)'
+                                            : 'rgba(29, 39, 41, 0.4)',
+                                        borderRadius: 'var(--radius-md)',
+                                        padding: '32px 24px',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        textAlign: 'center',
+                                        cursor: isAdmin ? 'pointer' : 'not-allowed',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    }}
+                                >
+                                    <input
+                                        ref={fileInputRef}
+                                        type="file"
+                                        accept="image/png,image/svg+xml,image/jpeg,image/webp"
+                                        style={{ display: 'none' }}
+                                        disabled={!isAdmin}
+                                        onChange={(e) => {
+                                            if (e.target.files?.[0]) {
+                                                handleFileSelect(e.target.files[0]);
+                                            }
+                                        }}
+                                    />
+
+                                    <div style={{
+                                        width: '52px',
+                                        height: '52px',
+                                        borderRadius: '50%',
+                                        backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                        border: '1px solid rgba(56, 102, 66, 0.5)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        fontSize: '1.5rem',
+                                        marginBottom: '14px',
+                                    }}>
+                                        ☁️
+                                    </div>
+
+                                    <h4 style={{ fontSize: '0.96rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                        {isAdmin ? 'Choose a file or drag & drop here' : 'Administrator role required to upload'}
+                                    </h4>
+                                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', maxWidth: '420px', lineHeight: 1.5, marginBottom: '16px' }}>
+                                        Supports <strong>PNG, SVG, JPG, WebP</strong> up to <strong>5MB</strong>.
+                                        <br />
+                                        <span style={{ fontSize: '0.74rem', opacity: 0.85 }}>
+                                            Tip: High-resolution SVGs or transparent PNGs (e.g. 400×120px) provide razor-sharp clarity on studio monitors.
+                                        </span>
+                                    </p>
+
+                                    {isAdmin && (
+                                        <button
+                                            type="button"
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.82rem', padding: '6px 16px' }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                fileInputRef.current?.click();
+                                            }}
+                                        >
+                                            Browse Local Files
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* SECTION 2: BRAND IDENTITY LABELS */}
+                        <section className="card" style={{ marginBottom: '24px' }}>
+                            <div style={{ marginBottom: '20px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                                    <span style={{ fontSize: '1.3rem' }}>🏷️</span>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                                        Brand Identity Labels & Nomenclature
+                                    </h3>
+                                </div>
+                                <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', maxWidth: '680px' }}>
+                                    Configure the organization name, badge acronym, and public mission statements. These values are automatically applied across headers, sidebar badges, legal watermarks, and login authentication.
+                                </p>
+                            </div>
+
+                            {brandFeedback && (
+                                <div style={{
+                                    padding: '10px 14px',
+                                    borderRadius: '6px',
+                                    marginBottom: '16px',
+                                    fontSize: '0.84rem',
+                                    backgroundColor: brandFeedback.type === 'success' ? 'rgba(56, 102, 66, 0.25)' : 'rgba(239, 68, 68, 0.2)',
+                                    border: '1px solid ' + (brandFeedback.type === 'success' ? 'var(--mtc-hunter-green)' : 'rgba(239, 68, 68, 0.4)'),
+                                    color: brandFeedback.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                }}>
+                                    {brandFeedback.message}
+                                </div>
+                            )}
+
+                            <form onSubmit={handleSaveBrandIdentity}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '18px', marginBottom: '18px' }}>
+                                    {/* Organization Name */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Organization / Brand Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formBrandName}
+                                            disabled={!isAdmin}
+                                            onChange={(e) => setFormBrandName(e.target.value)}
+                                            placeholder="e.g. Mountain Top Communications"
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                backgroundColor: 'var(--bg-color)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '6px',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.86rem',
+                                                outline: 'none',
+                                            }}
+                                        />
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                                            Full legal or enterprise name displayed on headings, reports, and navigation.
+                                        </span>
+                                    </div>
+
+                                    {/* Acronym / Badge */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                            Badge / Short Code (Acronym)
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={formBrandShortName}
+                                            maxLength={10}
+                                            disabled={!isAdmin}
+                                            onChange={(e) => setFormBrandShortName(e.target.value)}
+                                            placeholder="e.g. MTC"
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 14px',
+                                                backgroundColor: 'var(--bg-color)',
+                                                border: '1px solid var(--border-color)',
+                                                borderRadius: '6px',
+                                                color: 'var(--mtc-cornsilk)',
+                                                fontSize: '0.86rem',
+                                                outline: 'none',
+                                                letterSpacing: '0.08em',
+                                                fontWeight: 700,
+                                            }}
+                                        />
+                                        <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                                            2 to 6 uppercase letters used in collapsed badges, proxy watermarks, and file stamps.
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Tagline */}
+                                <div style={{ marginBottom: '18px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                        Brand Tagline & Mission Headline
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formBrandTagline}
+                                        disabled={!isAdmin}
+                                        onChange={(e) => setFormBrandTagline(e.target.value)}
+                                        placeholder="e.g. Studio-Grade Digital Asset Management"
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 14px',
+                                            backgroundColor: 'var(--bg-color)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            color: 'var(--mtc-cornsilk)',
+                                            fontSize: '0.86rem',
+                                            outline: 'none',
+                                        }}
+                                    />
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                                        Prominently featured on the login portal, metadata exports, and platform headings.
+                                    </span>
+                                </div>
+
+                                {/* Description / Mission */}
+                                <div style={{ marginBottom: '22px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                        Mission Statement & Public Description
+                                    </label>
+                                    <textarea
+                                        value={formBrandDescription}
+                                        rows={3}
+                                        disabled={!isAdmin}
+                                        onChange={(e) => setFormBrandDescription(e.target.value)}
+                                        placeholder="Describe your organization's mission and purpose..."
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px 14px',
+                                            backgroundColor: 'var(--bg-color)',
+                                            border: '1px solid var(--border-color)',
+                                            borderRadius: '6px',
+                                            color: 'var(--mtc-cornsilk)',
+                                            fontSize: '0.86rem',
+                                            outline: 'none',
+                                            resize: 'vertical',
+                                            lineHeight: 1.5,
+                                        }}
+                                    />
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                                        Used on authentication screens and platform information modals.
+                                    </span>
+                                </div>
+
+                                {/* Action Buttons */}
+                                {isAdmin && (
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                        <button
+                                            type="submit"
+                                            disabled={brandSaving}
+                                            className="btn btn-primary"
+                                            style={{ fontSize: '0.86rem', padding: '9px 20px' }}
+                                        >
+                                            {brandSaving ? 'Saving Changes...' : 'Save Brand Identity Labels'}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleResetIdentityDefaults}
+                                            className="btn btn-secondary"
+                                            style={{ fontSize: '0.82rem', padding: '9px 16px' }}
+                                        >
+                                            Reset Form to MTC Defaults
+                                        </button>
+                                    </div>
+                                )}
+                            </form>
+                        </section>
+
+                        {/* SECTION 3: LIVE SYSTEM PREVIEWS */}
+                        <section className="card" style={{ marginBottom: '24px' }}>
+                            <div style={{ marginBottom: '18px' }}>
+                                <h3 style={{ fontSize: '0.98rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                    👁️ Real-Time Surface Previews
+                                </h3>
+                                <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                                    Preview how your brand identity and logo appear across key user touchpoints:
+                                </p>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+                                {/* Surface 1: Sidebar Header */}
+                                <div style={{
+                                    padding: '18px',
+                                    backgroundColor: 'var(--bg-color)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-color)',
+                                }}>
+                                    <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '10px' }}>
+                                        Sidebar Navigation
+                                    </div>
+                                    <div style={{
+                                        padding: '12px 14px',
+                                        backgroundColor: 'var(--mtc-oxford-blue)',
+                                        borderRadius: '8px',
+                                        border: '1px solid rgba(202, 222, 223, 0.15)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px',
+                                    }}>
+                                        <MtcLogo variant="horizontal" size="sm" theme="cornsilk" />
+                                    </div>
+                                    <div style={{ marginTop: '8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                        Shows custom logo and dynamic organization name.
+                                    </div>
+                                </div>
+
+                                {/* Surface 2: Login Portal Mock */}
+                                <div style={{
+                                    padding: '18px',
+                                    backgroundColor: 'var(--bg-color)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-color)',
+                                }}>
+                                    <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '10px' }}>
+                                        Login Portal Hero
+                                    </div>
+                                    <div style={{
+                                        padding: '14px',
+                                        backgroundColor: '#141C1E',
+                                        borderRadius: '8px',
+                                        border: '1px solid rgba(202, 222, 223, 0.15)',
+                                    }}>
+                                        <div style={{ marginBottom: '10px' }}>
+                                            <MtcLogo variant="horizontal" size="sm" theme="cornsilk" />
+                                        </div>
+                                        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--mtc-cornsilk)', marginBottom: '4px', fontFamily: 'var(--font-brand)' }}>
+                                            {formBrandTagline || brandTagline}
+                                        </div>
+                                        <div style={{ fontSize: '0.72rem', color: 'var(--mtc-platinum)', opacity: 0.8, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                            {formBrandDescription || brandDescription}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Surface 3: Broadcast Proxy Watermark */}
+                                <div style={{
+                                    padding: '18px',
+                                    backgroundColor: 'var(--bg-color)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--border-color)',
+                                }}>
+                                    <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '10px' }}>
+                                        Video Proxy Watermark
+                                    </div>
+                                    <div style={{
+                                        position: 'relative',
+                                        height: '92px',
+                                        backgroundColor: '#0a0f10',
+                                        borderRadius: '8px',
+                                        border: '1px solid rgba(202, 222, 223, 0.15)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        overflow: 'hidden',
+                                    }}>
+                                        <span style={{ fontSize: '1.6rem', opacity: 0.2 }}>▶</span>
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '8px',
+                                            left: '10px',
+                                            fontSize: '0.64rem',
+                                            color: '#FFEBCC',
+                                            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                                            padding: '2px 6px',
+                                            borderRadius: '4px',
+                                            letterSpacing: '0.05em',
+                                            fontFamily: 'monospace',
+                                        }}>
+                                            CONFIDENTIAL — {formBrandShortName || brandShortName} BROADCAST PIPELINE
+                                        </div>
+                                    </div>
+                                    <div style={{ marginTop: '8px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                                        Burn-in security watermark with dynamic acronym.
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        {/* SECTION 4: Official Brand Guidelines Reference Card */}
                         <section className="card" style={{ marginBottom: '24px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
                                 <div>
@@ -510,7 +1250,7 @@ export default function SettingsPage() {
                             </div>
                         </section>
 
-                        {/* Logo System Showcase */}
+                        {/* SECTION 5: Logo System Showcase */}
                         <section className="card" style={{ marginBottom: '24px' }}>
                             <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '16px', fontFamily: 'var(--font-brand)' }}>
                                 Official Vector Logo Variants
@@ -531,7 +1271,7 @@ export default function SettingsPage() {
                             </div>
                         </section>
 
-                        {/* Export Presets */}
+                        {/* SECTION 6: Export Presets */}
                         <section className="card">
                             <h3 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '16px', fontFamily: 'var(--font-brand)' }}>📤 Distribution Presets</h3>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '12px' }}>

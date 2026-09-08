@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import { useBranding } from '@/components/BrandingContext';
 
 interface MtcLogoProps {
   variant?: 'icon' | 'horizontal' | 'vertical';
@@ -6,6 +9,9 @@ interface MtcLogoProps {
   className?: string;
   theme?: 'cornsilk' | 'green' | 'oxford' | 'white';
   style?: React.CSSProperties;
+  customLogoUrl?: string | null;
+  customBrandName?: string;
+  customShortName?: string;
 }
 
 export function MtcLogoIcon({
@@ -66,7 +72,23 @@ export default function MtcLogo({
   className = '',
   theme = 'cornsilk',
   style,
+  customLogoUrl,
+  customBrandName,
+  customShortName,
 }: MtcLogoProps) {
+  // Safe context hook access with fallback
+  let contextBranding: any = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    contextBranding = useBranding();
+  } catch {
+    // Graceful fallback if rendered outside provider
+  }
+
+  const effectiveLogoUrl = customLogoUrl !== undefined ? customLogoUrl : contextBranding?.brandLogoUrl;
+  const effectiveBrandName = customBrandName || contextBranding?.brandName || 'Mountain Top Communications';
+  const effectiveShortName = customShortName || contextBranding?.brandShortName || 'MTC';
+
   // Dimensions
   const iconSizes = {
     sm: 28,
@@ -100,10 +122,46 @@ export default function MtcLogo({
     subTextColor = 'rgba(255, 255, 255, 0.7)';
   }
 
+  // Render emblem: either custom uploaded logo or default vector mark
+  const renderEmblem = (targetSize: number) => {
+    if (effectiveLogoUrl) {
+      return (
+        <div
+          style={{
+            width: `${targetSize}px`,
+            height: `${targetSize}px`,
+            borderRadius: `${Math.round(targetSize * 0.22)}px`,
+            backgroundColor: bgColor,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            padding: `${Math.round(targetSize * 0.1)}px`,
+            border: '1px solid rgba(202, 222, 223, 0.15)',
+            flexShrink: 0,
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={effectiveLogoUrl}
+            alt={effectiveBrandName}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+            }}
+          />
+        </div>
+      );
+    }
+
+    return <MtcLogoIcon size={targetSize} bgColor={bgColor} peakColor={peakColor} />;
+  };
+
   if (variant === 'icon') {
     return (
       <div className={className} style={{ display: 'inline-flex', alignItems: 'center', ...style }}>
-        <MtcLogoIcon size={iconPx} bgColor={bgColor} peakColor={peakColor} />
+        {renderEmblem(iconPx)}
       </div>
     );
   }
@@ -121,7 +179,7 @@ export default function MtcLogo({
           ...style,
         }}
       >
-        <MtcLogoIcon size={iconPx * 1.5} bgColor={bgColor} peakColor={peakColor} />
+        {renderEmblem(iconPx * 1.5)}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
           <span
             style={{
@@ -133,7 +191,7 @@ export default function MtcLogo({
               color: textColor,
             }}
           >
-            MOUNTAIN TOP
+            {effectiveBrandName.toUpperCase()}
           </span>
           <span
             style={{
@@ -146,14 +204,14 @@ export default function MtcLogo({
               marginTop: '4px',
             }}
           >
-            COMMUNICATIONS
+            DIGITAL ASSET MANAGEMENT
           </span>
         </div>
       </div>
     );
   }
 
-  // Default: horizontal lockup (as in Page 11 of brand guide)
+  // Default: horizontal lockup
   return (
     <div
       className={className}
@@ -164,7 +222,7 @@ export default function MtcLogo({
         ...style,
       }}
     >
-      <MtcLogoIcon size={iconPx} bgColor={bgColor} peakColor={peakColor} />
+      {renderEmblem(iconPx)}
       <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.05 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px' }}>
           <span
@@ -176,7 +234,7 @@ export default function MtcLogo({
               color: textColor,
             }}
           >
-            MTC
+            {effectiveShortName}
           </span>
           <span
             style={{
@@ -205,7 +263,7 @@ export default function MtcLogo({
             whiteSpace: 'nowrap',
           }}
         >
-          Mountain Top Communications
+          {effectiveBrandName}
         </span>
       </div>
     </div>

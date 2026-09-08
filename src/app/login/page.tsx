@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useRouter } from 'next/navigation';
+import { useBranding } from '@/components/BrandingContext';
 import MtcLogo from '@/components/MtcLogo';
 import AfrihausPattern from '@/components/AfrihausPattern';
 
@@ -15,6 +16,7 @@ const roleDescriptions: Record<string, string> = {
 
 export default function LoginPage() {
     const { login } = useAuth();
+    const { brandTagline, brandDescription } = useBranding();
     const router = useRouter();
 
     const [email, setEmail] = useState('');
@@ -104,7 +106,7 @@ export default function LoginPage() {
                                 marginBottom: '14px',
                                 color: 'var(--mtc-cornsilk)',
                             }}>
-                                Studio-Grade Digital Asset Management
+                                {brandTagline || 'Studio-Grade Digital Asset Management'}
                             </h1>
                             <p style={{
                                 fontFamily: 'var(--font-body)',
@@ -114,7 +116,7 @@ export default function LoginPage() {
                                 maxWidth: '440px',
                                 opacity: 0.9,
                             }}>
-                                The official content brain for Mountain Top Communications — delivering values-based, educational, and inspiring media across Ghana and West Africa.
+                                {brandDescription || 'The official content brain for Mountain Top Communications — delivering values-based, educational, and inspiring media across Ghana and West Africa.'}
                             </p>
                         </div>
 
