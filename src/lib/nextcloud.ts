@@ -287,6 +287,34 @@ export async function listDirectory(dirPath: string) {
     return files.map(f => ({ filename: f, basename: f }));
 }
 
+export async function moveAssetFile(sourcePath: string, destPath: string): Promise<boolean> {
+    try {
+        const { client } = await getNextcloudClient();
+        if (client) {
+            await ensureRemoteDir(client, destPath);
+            await client.moveFile(sourcePath, destPath);
+            console.log(`[Nextcloud WebDAV] Moved ${sourcePath} -> ${destPath}`);
+            return true;
+        }
+    } catch (err) {
+        console.warn(`[Nextcloud WebDAV] Failed to move ${sourcePath} to ${destPath}:`, err);
+    }
+
+    try {
+        const localSrc = getLocalPath(sourcePath);
+        const localDest = getLocalPath(destPath);
+        if (fs.existsSync(localSrc)) {
+            await ensureLocalDir(localDest);
+            await fs.promises.rename(localSrc, localDest);
+            console.log(`[Local Storage] Moved ${localSrc} -> ${localDest}`);
+            return true;
+        }
+    } catch (err) {
+        console.warn(`[Local Storage] Failed to move ${sourcePath} to ${destPath}:`, err);
+    }
+    return false;
+}
+
 export interface ScannedMediaFile {
     filename: string;
     basename: string;

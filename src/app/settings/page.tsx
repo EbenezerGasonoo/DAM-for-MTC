@@ -67,7 +67,7 @@ export default function SettingsPage() {
     const { user } = useAuth();
     const isAdmin = user?.role === 'ADMIN';
 
-    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud' | 'notifications'>('brand');
+    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud' | 'notifications' | 'watchfolder'>('brand');
 
     // Brand Identity form state
     const [formBrandName, setFormBrandName] = useState(brandName);
@@ -179,6 +179,27 @@ export default function SettingsPage() {
     const [testRecipientEmail, setTestRecipientEmail] = useState('');
     const [showSmtpPassword, setShowSmtpPassword] = useState(false);
     const [testEmailResult, setTestEmailResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+    // Watch Folder Auto-Ingestion State
+    const [wfEnabled, setWfEnabled] = useState(true);
+    const [wfStorageType, setWfStorageType] = useState<'nextcloud' | 'local'>('nextcloud');
+    const [wfFolderPath, setWfFolderPath] = useState('/Footage_Ingest');
+    const [wfRecursive, setWfRecursive] = useState(true);
+    const [wfAutoTags, setWfAutoTags] = useState('Auto-Ingest, Camera Card');
+    const [wfDefaultProjectId, setWfDefaultProjectId] = useState('');
+    const [wfActionAfterIngest, setWfActionAfterIngest] = useState<'keep' | 'move_archive'>('keep');
+    const [wfArchiveFolder, setWfArchiveFolder] = useState('/Footage_Ingest/Archive');
+    const [wfAutoTranscode, setWfAutoTranscode] = useState(true);
+    const [wfStatus, setWfStatus] = useState<'IDLE' | 'SCANNING' | 'ERROR'>('IDLE');
+    const [wfLastScanTime, setWfLastScanTime] = useState<string | null>(null);
+    const [wfLastScanSummary, setWfLastScanSummary] = useState<string | null>(null);
+    const [wfTotalIngested, setWfTotalIngested] = useState(0);
+    const [wfProjects, setWfProjects] = useState<Array<{ id: string; name: string }>>([]);
+    const [wfRecentIngested, setWfRecentIngested] = useState<any[]>([]);
+    const [wfLoading, setWfLoading] = useState(false);
+    const [wfSaving, setWfSaving] = useState(false);
+    const [wfScanning, setWfScanning] = useState(false);
+    const [wfFeedback, setWfFeedback] = useState<{ type: 'success' | 'error'; message: string; details?: any } | null>(null);
 
     // Watermark Profile state
     const [watermarkName, setWatermarkName] = useState('MTC Internal Confidential Burn-in');
@@ -501,10 +522,20 @@ export default function SettingsPage() {
     const handleOpenExplorer = () => {
         setIsFolderExplorerOpen(true);
         setExplorerSearch('');
-        fetchFolders(ncRootFolder || '/');
+        const startPath = activeTab === 'watchfolder' ? (wfFolderPath || '/') : (ncRootFolder || '/');
+        fetchFolders(startPath);
     };
 
     const handleSelectTargetFolder = (selectedPath: string) => {
+        if (activeTab === 'watchfolder') {
+            setWfFolderPath(selectedPath);
+            setIsFolderExplorerOpen(false);
+            setWfFeedback({
+                type: 'success',
+                message: `Watch folder path set to "${selectedPath}". Click "Save Ingest Configuration" to commit.`,
+            });
+            return;
+        }
         setNcRootFolder(selectedPath);
         setIsFolderExplorerOpen(false);
         setNcFeedback({
@@ -691,6 +722,115 @@ export default function SettingsPage() {
         }
     };
 
+    const fetchWatchFolderSettings = async () => {
+        try {
+            setWfLoading(true);
+            const res = await fetch('/api/settings/watch-folder');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.config) {
+                    setWfEnabled(Boolean(data.config.enabled));
+                    setWfStorageType(data.config.storageType || 'nextcloud');
+                    setWfFolderPath(data.config.folderPath || '/Footage_Ingest');
+                    setWfRecursive(data.config.recursive !== false);
+                    setWfAutoTags(Array.isArray(data.config.autoTags) ? data.config.autoTags.join(', ') : 'Auto-Ingest, Camera Card');
+                    setWfDefaultProjectId(data.config.defaultProjectId || '');
+                    setWfActionAfterIngest(data.config.actionAfterIngest || 'keep');
+                    setWfArchiveFolder(data.config.archiveFolder || '/Footage_Ingest/Archive');
+                    setWfAutoTranscode(data.config.autoTranscode !== false);
+                    setWfStatus(data.config.status || 'IDLE');
+                    setWfLastScanTime(data.config.lastScanTime);
+                    setWfLastScanSummary(data.config.lastScanSummary);
+                    setWfTotalIngested(data.config.totalIngestedCount || 0);
+                }
+                if (Array.isArray(data.projects)) {
+                    setWfProjects(data.projects);
+                }
+                if (Array.isArray(data.recentIngested)) {
+                    setWfRecentIngested(data.recentIngested);
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching watch folder config:', err);
+        } finally {
+            setWfLoading(false);
+        }
+    };
+
+    const handleSaveWatchFolder = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        setWfSaving(true);
+        setWfFeedback(null);
+        try {
+            const tags = wfAutoTags.split(',').map(t => t.trim()).filter(Boolean);
+            const res = await fetch('/api/settings/watch-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: wfEnabled,
+                    storageType: wfStorageType,
+                    folderPath: wfFolderPath,
+                    recursive: wfRecursive,
+                    autoTags: tags,
+                    defaultProjectId: wfDefaultProjectId || null,
+                    actionAfterIngest: wfActionAfterIngest,
+                    archiveFolder: wfArchiveFolder,
+                    autoTranscode: wfAutoTranscode,
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setWfFeedback({
+                    type: 'success',
+                    message: 'Watch folder settings saved successfully! Camera card drops will be auto-processed.',
+                });
+            } else {
+                setWfFeedback({
+                    type: 'error',
+                    message: data.error || 'Failed to save watch folder settings',
+                });
+            }
+        } catch (err: any) {
+            setWfFeedback({
+                type: 'error',
+                message: err?.message || 'Network error saving watch folder settings',
+            });
+        } finally {
+            setWfSaving(false);
+        }
+    };
+
+    const handleTriggerScan = async () => {
+        setWfScanning(true);
+        setWfFeedback(null);
+        try {
+            const res = await fetch('/api/settings/watch-folder/scan', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setWfFeedback({
+                    type: 'success',
+                    message: data.message,
+                    details: data,
+                });
+                fetchWatchFolderSettings();
+            } else {
+                setWfFeedback({
+                    type: 'error',
+                    message: data.error || data.message || 'Scan failed',
+                });
+            }
+        } catch (err: any) {
+            setWfFeedback({
+                type: 'error',
+                message: err?.message || 'Network error executing watch folder scan',
+            });
+        } finally {
+            setWfScanning(false);
+        }
+    };
+
     const fetchUsers = async () => {
         try {
             setLoadingUsers(true);
@@ -791,6 +931,8 @@ export default function SettingsPage() {
             fetchNextcloudSettings();
         } else if (activeTab === 'notifications') {
             fetchSmtpSettings();
+        } else if (activeTab === 'watchfolder') {
+            fetchWatchFolderSettings();
         }
     }, [activeTab]);
 
@@ -836,6 +978,7 @@ export default function SettingsPage() {
                         { key: 'brand', label: 'Brand & Visual Identity', icon: '🎨' },
                         { key: 'users', label: 'Users & Access', icon: '👥' },
                         { key: 'nextcloud', label: 'Cloud Storage & Nextcloud', icon: '☁️' },
+                        { key: 'watchfolder', label: 'Ingest & Watch Folders', icon: '📂' },
                         { key: 'notifications', label: 'Email & Notifications', icon: '✉️' },
                         { key: 'rbac', label: 'Role-Based Access Control (RBAC)', icon: '🛡️' },
                         { key: 'watermark', label: 'DRM & Watermark Profiles', icon: '🔒' },
@@ -3222,6 +3365,613 @@ export default function SettingsPage() {
                                     </div>
                                 ))}
                             </div>
+                        </section>
+                    </div>
+                )}
+
+                {/* TAB: INGEST & WATCH FOLDERS */}
+                {activeTab === 'watchfolder' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                        {!isAdmin && (
+                            <div style={{
+                                padding: '12px 16px',
+                                borderRadius: '8px',
+                                backgroundColor: 'rgba(230, 167, 76, 0.12)',
+                                border: '1px solid rgba(230, 167, 76, 0.3)',
+                                color: '#FFD180',
+                                fontSize: '0.88rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                            }}>
+                                <span>⚠️</span>
+                                <span>Administrator privileges are required to modify watch folder configurations or trigger manual scans.</span>
+                            </div>
+                        )}
+
+                        {/* SECTION 1: SYSTEM STATUS & ENGINE OVERVIEW */}
+                        <section className="card">
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'flex-start',
+                                flexWrap: 'wrap',
+                                gap: '16px',
+                                marginBottom: '20px',
+                            }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
+                                        <h3 style={{ fontSize: '1.25rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)', margin: 0 }}>
+                                            Camera Card & Watch Folder Auto-Ingestion
+                                        </h3>
+                                        <span style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '9999px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 600,
+                                            backgroundColor: wfScanning
+                                                ? 'rgba(230, 167, 76, 0.2)'
+                                                : wfEnabled
+                                                    ? 'rgba(56, 102, 66, 0.25)'
+                                                    : 'rgba(202, 222, 223, 0.1)',
+                                            color: wfScanning
+                                                ? '#FFD180'
+                                                : wfEnabled
+                                                    ? '#A7F3D0'
+                                                    : 'var(--text-muted)',
+                                            border: `1px solid ${
+                                                wfScanning
+                                                    ? 'rgba(230, 167, 76, 0.4)'
+                                                    : wfEnabled
+                                                        ? 'var(--mtc-hunter-green)'
+                                                        : 'rgba(202, 222, 223, 0.2)'
+                                            }`,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                        }}>
+                                            <span style={{
+                                                width: '7px',
+                                                height: '7px',
+                                                borderRadius: '50%',
+                                                backgroundColor: wfScanning ? '#FFD180' : wfEnabled ? '#10B981' : '#6B7280',
+                                            }} />
+                                            {wfScanning ? 'Ingestion In Progress...' : wfEnabled ? 'Monitoring Active' : 'Ingest Disabled'}
+                                        </span>
+                                    </div>
+                                    <p style={{ fontSize: '0.86rem', color: 'var(--text-muted)', margin: 0, maxWidth: '720px' }}>
+                                        When videographers offload camera cards or master exports to the designated network folder, the DAM automatically detects new files, probes broadcast specifications (Resolution, FPS, Rec.709), and transcodes 720p streaming proxies at 285x speed on TrueNAS’s Intel GPU.
+                                    </p>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    <button
+                                        type="button"
+                                        onClick={handleTriggerScan}
+                                        disabled={wfScanning || !isAdmin}
+                                        className="btn"
+                                        style={{
+                                            backgroundColor: 'var(--mtc-hunter-green)',
+                                            color: '#FFFFFF',
+                                            border: 'none',
+                                            padding: '10px 18px',
+                                            borderRadius: '8px',
+                                            fontWeight: 600,
+                                            fontSize: '0.88rem',
+                                            cursor: wfScanning || !isAdmin ? 'not-allowed' : 'pointer',
+                                            opacity: wfScanning || !isAdmin ? 0.65 : 1,
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            boxShadow: '0 4px 12px rgba(56, 102, 66, 0.35)',
+                                        }}
+                                    >
+                                        <span>{wfScanning ? '⏳' : '⚡'}</span>
+                                        <span>{wfScanning ? 'Scanning & Ingesting...' : 'Scan & Ingest Now'}</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Stat Cards Grid */}
+                            <div style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                                gap: '14px',
+                            }}>
+                                <div style={{
+                                    padding: '16px',
+                                    borderRadius: '10px',
+                                    backgroundColor: '#141C1E',
+                                    border: '1px solid rgba(202, 222, 223, 0.12)',
+                                }}>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                                        Watch Folder Target
+                                    </div>
+                                    <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                        {wfFolderPath || '/Footage_Ingest'}
+                                    </div>
+                                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        {wfStorageType === 'nextcloud' ? 'Nextcloud WebDAV Cloud Storage' : 'TrueNAS Local Filesystem'}
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    padding: '16px',
+                                    borderRadius: '10px',
+                                    backgroundColor: '#141C1E',
+                                    border: '1px solid rgba(202, 222, 223, 0.12)',
+                                }}>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                                        GPU Transcoder Pipeline
+                                    </div>
+                                    <div style={{ fontSize: '1.05rem', fontWeight: 600, color: '#A7F3D0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <span>⚡ Intel QuickSync (VAAPI)</span>
+                                    </div>
+                                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                                        285x real-time speed (/dev/dri/renderD128)
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    padding: '16px',
+                                    borderRadius: '10px',
+                                    backgroundColor: '#141C1E',
+                                    border: '1px solid rgba(202, 222, 223, 0.12)',
+                                }}>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                                        Total Auto-Ingested Assets
+                                    </div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--mtc-cornsilk)' }}>
+                                        {wfTotalIngested} Files
+                                    </div>
+                                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                        {wfLastScanTime ? `Last scan: ${new Date(wfLastScanTime).toLocaleTimeString()}` : 'No scans run yet'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Feedback Banner */}
+                            {wfFeedback && (
+                                <div style={{
+                                    marginTop: '20px',
+                                    padding: '14px 18px',
+                                    borderRadius: '10px',
+                                    backgroundColor: wfFeedback.type === 'success' ? 'rgba(56, 102, 66, 0.18)' : 'rgba(239, 68, 68, 0.18)',
+                                    border: `1px solid ${wfFeedback.type === 'success' ? 'var(--mtc-hunter-green)' : 'rgba(239, 68, 68, 0.4)'}`,
+                                    color: wfFeedback.type === 'success' ? '#A7F3D0' : '#FCA5A5',
+                                    fontSize: '0.88rem',
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
+                                        <span>{wfFeedback.type === 'success' ? '✅' : '❌'}</span>
+                                        <span>{wfFeedback.message}</span>
+                                    </div>
+                                    {wfFeedback.details?.importedAssets?.length > 0 && (
+                                        <div style={{ marginTop: '10px', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '8px' }}>
+                                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Ingested Assets: </span>
+                                            {wfFeedback.details.importedAssets.map((a: any, idx: number) => (
+                                                <span key={a.id || idx} style={{
+                                                    display: 'inline-block',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: 'rgba(255,255,255,0.08)',
+                                                    fontSize: '0.78rem',
+                                                    margin: '2px 4px',
+                                                }}>
+                                                    {a.title} {a.resolution ? `(${a.resolution})` : ''}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </section>
+
+                        {/* SECTION 2: CONFIGURATION PANEL */}
+                        <section className="card">
+                            <form onSubmit={handleSaveWatchFolder}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                    <span style={{ fontSize: '1.2rem' }}>⚙️</span>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                                        Ingestion Pipeline Rules & Storage Paths
+                                    </h3>
+                                </div>
+                                <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '20px' }}>
+                                    Configure where camera card dumps are dropped and how the engine processes, tags, and archives new footage.
+                                </p>
+
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+                                    {/* Master Enable Toggle */}
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '14px 16px',
+                                        borderRadius: '8px',
+                                        backgroundColor: '#141C1E',
+                                        border: '1px solid rgba(202, 222, 223, 0.12)',
+                                    }}>
+                                        <div>
+                                            <div style={{ fontWeight: 600, color: 'var(--mtc-cornsilk)', fontSize: '0.92rem' }}>
+                                                Automated Watch Folder Monitoring
+                                            </div>
+                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                                Continuously monitor the folder for incoming camera footage, DaVinci masters, and media files.
+                                            </div>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={wfEnabled}
+                                            onChange={e => setWfEnabled(e.target.checked)}
+                                            disabled={!isAdmin}
+                                            style={{ width: '20px', height: '20px', accentColor: 'var(--mtc-hunter-green)', cursor: 'pointer' }}
+                                        />
+                                    </div>
+
+                                    {/* Storage Type & Folder Path */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                Storage Source
+                                            </label>
+                                            <select
+                                                value={wfStorageType}
+                                                onChange={e => setWfStorageType(e.target.value as any)}
+                                                disabled={!isAdmin}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 14px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#141C1E',
+                                                    border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.88rem',
+                                                }}
+                                            >
+                                                <option value="nextcloud">Nextcloud WebDAV Cloud Storage (Recommended)</option>
+                                                <option value="local">TrueNAS Local Filesystem Path</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                Watch Folder Drop Location
+                                            </label>
+                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                <input
+                                                    type="text"
+                                                    value={wfFolderPath}
+                                                    onChange={e => setWfFolderPath(e.target.value)}
+                                                    disabled={!isAdmin}
+                                                    placeholder="/Footage_Ingest"
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '10px 14px',
+                                                        borderRadius: '8px',
+                                                        backgroundColor: '#141C1E',
+                                                        border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                        color: 'var(--mtc-cornsilk)',
+                                                        fontSize: '0.88rem',
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={handleOpenExplorer}
+                                                    className="btn"
+                                                    style={{
+                                                        backgroundColor: '#1D2729',
+                                                        border: '1px solid rgba(202, 222, 223, 0.25)',
+                                                        color: 'var(--mtc-cornsilk)',
+                                                        padding: '10px 14px',
+                                                        borderRadius: '8px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '0.85rem',
+                                                        whiteSpace: 'nowrap',
+                                                    }}
+                                                >
+                                                    📂 Browse
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Recursive Toggle & GPU Transcoding */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            padding: '12px 16px',
+                                            borderRadius: '8px',
+                                            backgroundColor: '#141C1E',
+                                            border: '1px solid rgba(202, 222, 223, 0.12)',
+                                        }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: 'var(--mtc-cornsilk)', fontSize: '0.88rem' }}>
+                                                    Scan Subdirectories Recursively
+                                                </div>
+                                                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                                                    Traverses nested camera card card structures (DCIM, clips, card volumes).
+                                                </div>
+                                            </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={wfRecursive}
+                                                onChange={e => setWfRecursive(e.target.checked)}
+                                                disabled={!isAdmin}
+                                                style={{ width: '18px', height: '18px', accentColor: 'var(--mtc-hunter-green)', cursor: 'pointer' }}
+                                            />
+                                        </div>
+
+                                        <div style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            padding: '12px 16px',
+                                            borderRadius: '8px',
+                                            backgroundColor: '#141C1E',
+                                            border: '1px solid rgba(202, 222, 223, 0.12)',
+                                        }}>
+                                            <div>
+                                                <div style={{ fontWeight: 600, color: 'var(--mtc-cornsilk)', fontSize: '0.88rem' }}>
+                                                    GPU 720p Streaming Proxies
+                                                </div>
+                                                <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                                                    Generate instant streaming proxies and video poster thumbnails.
+                                                </div>
+                                            </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={wfAutoTranscode}
+                                                onChange={e => setWfAutoTranscode(e.target.checked)}
+                                                disabled={!isAdmin}
+                                                style={{ width: '18px', height: '18px', accentColor: 'var(--mtc-hunter-green)', cursor: 'pointer' }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Default Project & Auto-Tags */}
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px' }}>
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                Assign to Project (Optional)
+                                            </label>
+                                            <select
+                                                value={wfDefaultProjectId}
+                                                onChange={e => setWfDefaultProjectId(e.target.value)}
+                                                disabled={!isAdmin}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 14px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#141C1E',
+                                                    border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.88rem',
+                                                }}
+                                            >
+                                                <option value="">No Project (General Library Ingest)</option>
+                                                {wfProjects.map(p => (
+                                                    <option key={p.id} value={p.id}>
+                                                        {p.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                                                Auto-Applied Tags (comma-separated)
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={wfAutoTags}
+                                                onChange={e => setWfAutoTags(e.target.value)}
+                                                disabled={!isAdmin}
+                                                placeholder="Auto-Ingest, Camera Card, Raw Footage"
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 14px',
+                                                    borderRadius: '8px',
+                                                    backgroundColor: '#141C1E',
+                                                    border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.88rem',
+                                                }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Post-Ingest Action */}
+                                    <div style={{
+                                        padding: '16px',
+                                        borderRadius: '8px',
+                                        backgroundColor: '#141C1E',
+                                        border: '1px solid rgba(202, 222, 223, 0.12)',
+                                    }}>
+                                        <div style={{ fontWeight: 600, color: 'var(--mtc-cornsilk)', fontSize: '0.88rem', marginBottom: '8px' }}>
+                                            Action After Successful Ingestion
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', marginBottom: wfActionAfterIngest === 'move_archive' ? '12px' : 0 }}>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', color: 'var(--mtc-cornsilk)', cursor: 'pointer' }}>
+                                                <input
+                                                    type="radio"
+                                                    name="wfAction"
+                                                    value="keep"
+                                                    checked={wfActionAfterIngest === 'keep'}
+                                                    onChange={() => setWfActionAfterIngest('keep')}
+                                                    disabled={!isAdmin}
+                                                    style={{ accentColor: 'var(--mtc-hunter-green)' }}
+                                                />
+                                                <span>Keep original file in place (Safe, skips already ingested files)</span>
+                                            </label>
+                                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', color: 'var(--mtc-cornsilk)', cursor: 'pointer' }}>
+                                                <input
+                                                    type="radio"
+                                                    name="wfAction"
+                                                    value="move_archive"
+                                                    checked={wfActionAfterIngest === 'move_archive'}
+                                                    onChange={() => setWfActionAfterIngest('move_archive')}
+                                                    disabled={!isAdmin}
+                                                    style={{ accentColor: 'var(--mtc-hunter-green)' }}
+                                                />
+                                                <span>Move to Archive folder (Keeps drop folder clean for next shoot)</span>
+                                            </label>
+                                        </div>
+
+                                        {wfActionAfterIngest === 'move_archive' && (
+                                            <div style={{ marginTop: '10px' }}>
+                                                <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                                                    Archive Destination Folder
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    value={wfArchiveFolder}
+                                                    onChange={e => setWfArchiveFolder(e.target.value)}
+                                                    disabled={!isAdmin}
+                                                    placeholder="/Footage_Ingest/Archive"
+                                                    style={{
+                                                        width: '100%',
+                                                        maxWidth: '480px',
+                                                        padding: '8px 12px',
+                                                        borderRadius: '6px',
+                                                        backgroundColor: '#1D2729',
+                                                        border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                        color: 'var(--mtc-cornsilk)',
+                                                        fontSize: '0.84rem',
+                                                        fontFamily: 'monospace',
+                                                    }}
+                                                />
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                                        <button
+                                            type="submit"
+                                            disabled={wfSaving || !isAdmin}
+                                            className="btn"
+                                            style={{
+                                                backgroundColor: 'var(--mtc-hunter-green)',
+                                                color: '#FFFFFF',
+                                                border: 'none',
+                                                padding: '10px 22px',
+                                                borderRadius: '8px',
+                                                fontWeight: 600,
+                                                fontSize: '0.88rem',
+                                                cursor: wfSaving || !isAdmin ? 'not-allowed' : 'pointer',
+                                                opacity: wfSaving || !isAdmin ? 0.65 : 1,
+                                            }}
+                                        >
+                                            {wfSaving ? 'Saving Settings...' : 'Save Ingest Configuration'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </section>
+
+                        {/* SECTION 3: RECENT INGESTION ACTIVITY LOG */}
+                        <section className="card">
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span style={{ fontSize: '1.2rem' }}>📜</span>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)', margin: 0 }}>
+                                        Recent Auto-Ingestion Log
+                                    </h3>
+                                </div>
+                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                                    Showing last {wfRecentIngested.length} assets
+                                </span>
+                            </div>
+
+                            {wfRecentIngested.length === 0 ? (
+                                <div style={{
+                                    padding: '40px 20px',
+                                    textAlign: 'center',
+                                    backgroundColor: '#141C1E',
+                                    borderRadius: '10px',
+                                    border: '1px dashed rgba(202, 222, 223, 0.15)',
+                                }}>
+                                    <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📥</div>
+                                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                        No files auto-ingested yet
+                                    </div>
+                                    <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', maxWidth: '420px', margin: '0 auto' }}>
+                                        Drop video clips or camera cards into <code>{wfFolderPath}</code> and click <strong>"Scan & Ingest Now"</strong> to test automatic transcoding and ingestion.
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                        <thead>
+                                            <tr style={{ borderBottom: '1px solid rgba(202, 222, 223, 0.15)', textAlign: 'left', color: 'var(--text-muted)' }}>
+                                                <th style={{ padding: '10px 12px' }}>Asset</th>
+                                                <th style={{ padding: '10px 12px' }}>Type</th>
+                                                <th style={{ padding: '10px 12px' }}>Specifications</th>
+                                                <th style={{ padding: '10px 12px' }}>Size</th>
+                                                <th style={{ padding: '10px 12px' }}>Project</th>
+                                                <th style={{ padding: '10px 12px' }}>Ingested</th>
+                                                <th style={{ padding: '10px 12px', textAlign: 'right' }}>Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {wfRecentIngested.map(asset => {
+                                                let metaObj: any = {};
+                                                try {
+                                                    if (asset.metadata) metaObj = JSON.parse(asset.metadata);
+                                                } catch {}
+
+                                                const resLabel = metaObj.resolution || (metaObj.width && metaObj.height ? `${metaObj.width}x${metaObj.height}` : '—');
+                                                const fpsLabel = metaObj.framerate || (metaObj.fps ? `${metaObj.fps} fps` : '');
+                                                const sizeMb = (asset.size / (1024 * 1024)).toFixed(1);
+
+                                                return (
+                                                    <tr key={asset.id} style={{ borderBottom: '1px solid rgba(202, 222, 223, 0.08)' }}>
+                                                        <td style={{ padding: '12px', fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                <span style={{ fontSize: '1.2rem' }}>
+                                                                    {asset.type === 'video' ? '🎬' : asset.type === 'image' ? '🖼️' : asset.type === 'audio' ? '🎵' : '📄'}
+                                                                </span>
+                                                                <span>{asset.title}</span>
+                                                            </div>
+                                                        </td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)', textTransform: 'uppercase', fontSize: '0.75rem' }}>
+                                                            {asset.type}
+                                                        </td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
+                                                            <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 500 }}>{resLabel}</span>
+                                                            {fpsLabel && <span style={{ marginLeft: '6px', fontSize: '0.78rem', color: '#A7F3D0' }}>{fpsLabel}</span>}
+                                                        </td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
+                                                            {Number(sizeMb) > 1024 ? `${(Number(sizeMb) / 1024).toFixed(2)} GB` : `${sizeMb} MB`}
+                                                        </td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)' }}>
+                                                            {asset.project?.name || '—'}
+                                                        </td>
+                                                        <td style={{ padding: '12px', color: 'var(--text-muted)', fontSize: '0.78rem' }}>
+                                                            {new Date(asset.createdAt).toLocaleDateString()} {new Date(asset.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        </td>
+                                                        <td style={{ padding: '12px', textAlign: 'right' }}>
+                                                            <span style={{
+                                                                padding: '3px 8px',
+                                                                borderRadius: '4px',
+                                                                fontSize: '0.72rem',
+                                                                fontWeight: 600,
+                                                                backgroundColor: 'rgba(56, 102, 66, 0.25)',
+                                                                color: '#A7F3D0',
+                                                                border: '1px solid var(--mtc-hunter-green)',
+                                                            }}>
+                                                                Approved
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
                         </section>
                     </div>
                 )}
