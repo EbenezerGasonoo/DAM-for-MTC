@@ -14,11 +14,9 @@ const roleDescriptions: Record<string, string> = {
 };
 
 export default function LoginPage() {
-    const { login, signup } = useAuth();
+    const { login } = useAuth();
     const router = useRouter();
 
-    const [mode, setMode] = useState<'login' | 'signup'>('login');
-    const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -30,12 +28,7 @@ export default function LoginPage() {
         setIsSubmitting(true);
 
         try {
-            let result;
-            if (mode === 'signup') {
-                result = await signup(name, email, password);
-            } else {
-                result = await login(email, password);
-            }
+            const result = await login(email, password);
 
             if (result.error) {
                 setError(result.error);
@@ -202,7 +195,7 @@ export default function LoginPage() {
                             color: 'var(--mtc-cornsilk)',
                             marginBottom: '4px',
                         }}>
-                            {mode === 'login' ? 'Sign In to Workspace' : 'Create Team Account'}
+                            Sign In to Workspace
                         </h2>
                         <p style={{
                             fontFamily: 'var(--font-body)',
@@ -210,9 +203,7 @@ export default function LoginPage() {
                             fontSize: '0.85rem',
                             marginBottom: '26px',
                         }}>
-                            {mode === 'login'
-                                ? 'Access your Mountain Top Communications studio assets'
-                                : 'Join the Mountain Top Communications production team'}
+                            Access your Mountain Top Communications studio assets
                         </p>
 
                         {error && (
@@ -231,49 +222,6 @@ export default function LoginPage() {
                         )}
 
                         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                            {mode === 'signup' && (
-                                <div>
-                                    <label style={{
-                                        display: 'block',
-                                        marginBottom: '6px',
-                                        fontSize: '0.82rem',
-                                        fontFamily: 'var(--font-brand)',
-                                        fontWeight: 500,
-                                        color: 'var(--mtc-cornsilk)',
-                                    }}>
-                                        Full Name
-                                    </label>
-                                    <input
-                                        id="auth-name"
-                                        type="text"
-                                        value={name}
-                                        onChange={(e) => setName(e.target.value)}
-                                        placeholder="e.g. Samuel Mensah"
-                                        required
-                                        style={{
-                                            width: '100%',
-                                            padding: '11px 14px',
-                                            backgroundColor: '#141C1E',
-                                            border: '1px solid rgba(202, 222, 223, 0.22)',
-                                            color: 'var(--mtc-cornsilk)',
-                                            borderRadius: '8px',
-                                            outline: 'none',
-                                            fontSize: '0.9rem',
-                                            fontFamily: 'var(--font-body)',
-                                            transition: 'all 0.2s',
-                                        }}
-                                        onFocus={(e) => {
-                                            e.currentTarget.style.borderColor = 'var(--mtc-hunter-green)';
-                                            e.currentTarget.style.boxShadow = '0 0 0 3px rgba(56, 102, 66, 0.25)';
-                                        }}
-                                        onBlur={(e) => {
-                                            e.currentTarget.style.borderColor = 'rgba(202, 222, 223, 0.22)';
-                                            e.currentTarget.style.boxShadow = 'none';
-                                        }}
-                                    />
-                                </div>
-                            )}
-
                             <div>
                                 <label style={{
                                     display: 'block',
@@ -331,9 +279,8 @@ export default function LoginPage() {
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    placeholder={mode === 'signup' ? 'Minimum 8 characters' : '••••••••'}
+                                    placeholder="••••••••"
                                     required
-                                    minLength={mode === 'signup' ? 8 : undefined}
                                     style={{
                                         width: '100%',
                                         padding: '11px 14px',
@@ -374,62 +321,27 @@ export default function LoginPage() {
                                     cursor: isSubmitting ? 'not-allowed' : 'pointer',
                                 }}
                             >
-                                {isSubmitting
-                                    ? 'Authenticating...'
-                                    : mode === 'login'
-                                    ? 'Sign In to DAM'
-                                    : 'Create Account'}
+                                {isSubmitting ? 'Authenticating...' : 'Sign In to DAM'}
                             </button>
                         </form>
 
                         <div style={{
                             textAlign: 'center',
                             marginTop: '22px',
-                            fontSize: '0.85rem',
+                            fontSize: '0.8rem',
                             color: 'var(--text-muted)',
                             fontFamily: 'var(--font-body)',
+                            padding: '10px 14px',
+                            backgroundColor: 'rgba(20, 28, 30, 0.5)',
+                            borderRadius: '8px',
+                            border: '1px solid rgba(202, 222, 223, 0.12)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '8px',
                         }}>
-                            {mode === 'login' ? (
-                                <>
-                                    Need an MTC account?{' '}
-                                    <button
-                                        id="toggle-mode"
-                                        onClick={() => { setMode('signup'); setError(''); }}
-                                        style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            color: 'var(--mtc-cornsilk)',
-                                            textDecoration: 'underline',
-                                            cursor: 'pointer',
-                                            fontWeight: 600,
-                                            fontFamily: 'var(--font-brand)',
-                                            fontSize: '0.85rem',
-                                        }}
-                                    >
-                                        Register here
-                                    </button>
-                                </>
-                            ) : (
-                                <>
-                                    Already have an account?{' '}
-                                    <button
-                                        id="toggle-mode"
-                                        onClick={() => { setMode('login'); setError(''); }}
-                                        style={{
-                                            background: 'none',
-                                            border: 'none',
-                                            color: 'var(--mtc-cornsilk)',
-                                            textDecoration: 'underline',
-                                            cursor: 'pointer',
-                                            fontWeight: 600,
-                                            fontFamily: 'var(--font-brand)',
-                                            fontSize: '0.85rem',
-                                        }}
-                                    >
-                                        Sign in
-                                    </button>
-                                </>
-                            )}
+                            <span>🔒</span>
+                            <span>Restricted access. Only administrators can create accounts.</span>
                         </div>
                     </div>
                 </div>
