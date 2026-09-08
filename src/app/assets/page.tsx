@@ -414,8 +414,38 @@ export default function AssetsPage() {
                                         fontSize: '3.8rem',
                                         position: 'relative',
                                         borderBottom: '1px solid var(--border-color)',
+                                        overflow: 'hidden',
                                     }}>
-                                        {typeIcons[asset.type]}
+                                        {(() => {
+                                            const thumb = asset.versions?.[0]?.proxyUri;
+                                            const isImg = thumb && /\.(jpg|jpeg|png|webp|gif)$/i.test(thumb);
+                                            if (isImg) {
+                                                return (
+                                                    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
+                                                        <img
+                                                            src={thumb}
+                                                            alt={asset.title}
+                                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                        />
+                                                        {asset.type === 'video' && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                inset: 0,
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                                                                color: 'var(--mtc-cornsilk)',
+                                                                fontSize: '2rem',
+                                                            }}>
+                                                                ▶
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+                                            return typeIcons[asset.type] || '📁';
+                                        })()}
 
                                         {/* Multi-Select Checkbox Overlay */}
                                         <div

@@ -89,8 +89,14 @@ export async function GET(req: NextRequest) {
                 projectId: a.projectId,
                 tags: a.tags.map(t => t.name),
                 versionNum: latestVer?.versionNum || 1,
-                // Direct streaming / preview URI
-                streamUri: latestVer?.proxyUri || latestVer?.nextcloudUri || '',
+                // Direct streaming / preview URI (playable video/audio stream)
+                streamUri: (() => {
+                    const isMediaProxy = latestVer?.proxyUri && /\.(mp4|webm|m4v|mov|mp3|wav|ogg)$/i.test(latestVer.proxyUri);
+                    if (a.type === 'video' || a.type === 'audio') {
+                        return (isMediaProxy ? latestVer?.proxyUri : latestVer?.nextcloudUri) || '';
+                    }
+                    return latestVer?.proxyUri || latestVer?.nextcloudUri || '';
+                })(),
                 // Full download URI for NLE local cache import
                 downloadUri: `/api/assets/${a.id}/download`,
                 // File path inside Nextcloud

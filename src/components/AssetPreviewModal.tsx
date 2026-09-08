@@ -149,7 +149,35 @@ export function AssetPreviewModal({
 
     const currentVersionObj = currentAsset.versions?.find(v => v.versionNum === selectedVersion)
         || currentAsset.versions?.[0];
-    const mediaSource = currentVersionObj?.proxyUri || currentVersionObj?.nextcloudUri || '';
+
+    // Distinguish between image thumbnails/waveforms and playable audio/video streams
+    const isVideoFile = (uri?: string | null) => Boolean(uri && /\.(mp4|webm|m4v|mov|mkv|avi|mxf)$/i.test(uri));
+    const isImageFile = (uri?: string | null) => Boolean(uri && /\.(jpg|jpeg|png|webp|gif|svg|bmp)$/i.test(uri));
+    const isAudioFile = (uri?: string | null) => Boolean(uri && /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(uri));
+
+    // Video: if proxy is an actual video proxy, use it; otherwise stream original media directly from nextcloudUri
+    const videoSource = isVideoFile(currentVersionObj?.proxyUri)
+        ? currentVersionObj!.proxyUri!
+        : (currentVersionObj?.nextcloudUri || '');
+
+    // Poster: if proxy is an image thumbnail, use as video poster
+    const videoPoster = isImageFile(currentVersionObj?.proxyUri)
+        ? currentVersionObj!.proxyUri!
+        : undefined;
+
+    // Audio: if proxy is an audio proxy, use it; otherwise stream original audio
+    const audioSource = isAudioFile(currentVersionObj?.proxyUri)
+        ? currentVersionObj!.proxyUri!
+        : (currentVersionObj?.nextcloudUri || '');
+
+    // Image: prefer fast web preview proxy if available, otherwise original
+    const imageSource = (isImageFile(currentVersionObj?.proxyUri) ? currentVersionObj?.proxyUri : currentVersionObj?.nextcloudUri) || '/placeholder.png';
+
+    // General mediaSource fallback for other tabs
+    const mediaSource = isVideoFile(currentVersionObj?.proxyUri) || isAudioFile(currentVersionObj?.proxyUri) || isImageFile(currentVersionObj?.proxyUri)
+        ? currentVersionObj!.proxyUri!
+        : (currentVersionObj?.nextcloudUri || '');
+
     const formattedSize = (currentAsset.size / (1024 * 1024)).toFixed(1) + ' MB';
 
     // Status transition handler
@@ -436,8 +464,11 @@ export function AssetPreviewModal({
                                     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                                         <video
                                             ref={videoRef}
-                                            src={mediaSource}
+                                            src={videoSource}
+                                            poster={videoPoster}
                                             controls
+                                            playsInline
+                                            preload="metadata"
                                             onTimeUpdate={() => {
                                                 if (videoRef.current) setCurrentVideoTime(videoRef.current.currentTime);
                                             }}
@@ -506,7 +537,7 @@ export function AssetPreviewModal({
                                             width: '100%',
                                         }}>
                                             <img
-                                                src={mediaSource || '/placeholder.png'}
+                                                src={imageSource}
                                                 alt={currentAsset.title}
                                                 style={{
                                                     maxWidth: `${zoomLevel}%`,
@@ -567,7 +598,7 @@ export function AssetPreviewModal({
                                                 />
                                             ))}
                                         </div>
-                                        <audio src={mediaSource} controls style={{ width: '100%', maxWidth: '500px' }} />
+                                        <audio src={audioSource} controls style={{ width: '100%', maxWidth: '500px' }} />
                                     </div>
                                 )}
 

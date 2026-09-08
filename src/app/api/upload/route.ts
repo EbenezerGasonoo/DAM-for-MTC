@@ -7,6 +7,7 @@ import {
     generateImageThumbnail, 
     extractVideoMetadata,
     generateVideoThumbnail,
+    generateVideoProxy,
     extractAudioMetadata,
     generateAudioWaveform
 } from '@/lib/media-processor';
@@ -121,6 +122,18 @@ export async function POST(req: NextRequest) {
                 }
             } catch (thumbErr) {
                 console.warn('Video poster thumbnail error (non-blocking):', thumbErr);
+            }
+
+            // Hardware-accelerated streaming proxy (NVIDIA -> Intel QuickSync -> CPU fallback)
+            try {
+                const proxyBuffer = await generateVideoProxy(buffer, mimeType);
+                if (proxyBuffer) {
+                    const videoProxyPath = `/mtc-dam-proxies/${timestamp}_proxy_${cleanName}.mp4`;
+                    await uploadAsset(videoProxyPath, proxyBuffer);
+                    proxyUri = videoProxyPath;
+                }
+            } catch (proxyErr) {
+                console.warn('Video proxy generation error (non-blocking):', proxyErr);
             }
 
             // If no separate proxy generated, default to the streamable master video file

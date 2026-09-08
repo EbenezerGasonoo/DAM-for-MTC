@@ -3,6 +3,78 @@ import ffmpeg from 'fluent-ffmpeg';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { spawn } from 'child_process';
+
+export type AccelType = 'nvidia' | 'intel' | 'cpu';
+
+let cachedAccel: AccelType | null = null;
+
+// Probe and detect available hardware video acceleration (NVIDIA NVENC -> Intel QuickSync/VAAPI -> CPU fallback)
+export async function detectHardwareAcceleration(): Promise<AccelType> {
+    if (cachedAccel) return cachedAccel;
+
+    // 1. Probe NVIDIA NVENC first
+    const hasNvidia = await new Promise<boolean>((resolve) => {
+        try {
+            const proc = spawn('ffmpeg', [
+                '-f', 'lavfi', '-i', 'testsrc=duration=1:size=64x64:rate=1',
+                '-c:v', 'h264_nvenc',
+                '-f', 'null', '-'
+            ]);
+            proc.on('close', (code) => resolve(code === 0));
+            proc.on('error', () => resolve(false));
+            setTimeout(() => {
+                try { proc.kill(); } catch {}
+                resolve(false);
+            }, 3000);
+        } catch {
+            resolve(false);
+        }
+    });
+
+    if (hasNvidia) {
+        console.log('[Media Processor] 🚀 NVIDIA NVENC hardware acceleration detected and active.');
+        cachedAccel = 'nvidia';
+        return 'nvidia';
+    }
+
+    // 2. Fallback to Intel QuickSync / VAAPI
+    const hasIntel = await new Promise<boolean>((resolve) => {
+        try {
+            const devPath = fs.existsSync('/dev/dri/renderD128')
+                ? '/dev/dri/renderD128'
+                : (fs.existsSync('/dev/dri/card0') ? '/dev/dri/card0' : null);
+
+            if (!devPath) return resolve(false);
+
+            const proc = spawn('ffmpeg', [
+                '-f', 'lavfi', '-i', 'testsrc=duration=1:size=64x64:rate=1',
+                '-vaapi_device', devPath,
+                '-vf', 'format=nv12,hwupload',
+                '-c:v', 'h264_vaapi',
+                '-f', 'null', '-'
+            ]);
+            proc.on('close', (code) => resolve(code === 0));
+            proc.on('error', () => resolve(false));
+            setTimeout(() => {
+                try { proc.kill(); } catch {}
+                resolve(false);
+            }, 3000);
+        } catch {
+            resolve(false);
+        }
+    });
+
+    if (hasIntel) {
+        console.log('[Media Processor] ⚡ Intel QuickSync / VAAPI hardware acceleration detected and active.');
+        cachedAccel = 'intel';
+        return 'intel';
+    }
+
+    console.log('[Media Processor] 💻 Using CPU software encoding (libx264).');
+    cachedAccel = 'cpu';
+    return 'cpu';
+}
 
 export async function extractImageMetadata(buffer: Buffer) {
     try {
@@ -213,76 +285,126 @@ export async function generateVideoThumbnail(buffer: Buffer): Promise<Buffer | n
     }
 }
 
-export async function generateVideoProxy(buffer: Buffer, originalMime?: string): Promise<Buffer | null> {
-    // If original video is already MP4 or WebM, it is natively streamable by browsers!
-    if (originalMime === 'video/mp4' || originalMime === 'video/webm') {
-        return null;
-    }
-
-    // Do not attempt full synchronous proxy transcoding for files > 30MB
-    if (buffer.length > 30 * 1024 * 1024) {
-        return null;
-    }
-
+// Hardware-accelerated 720p streaming proxy generation from file path
+export async function generateVideoProxyFromPath(filePath: string): Promise<Buffer | null> {
     const timestamp = Date.now();
-    const tempInputPath = path.join(os.tmpdir(), `temp_video_input_${timestamp}.mp4`);
-    const tempOutputPath = path.join(os.tmpdir(), `temp_video_output_${timestamp}.mp4`);
+    const tempOutputPath = path.join(os.tmpdir(), `temp_proxy_${timestamp}.mp4`);
+    const accel = await detectHardwareAcceleration();
 
-    try {
-        await fs.promises.writeFile(tempInputPath, buffer);
+    return await new Promise<Buffer | null>((resolve) => {
+        // 90s timeout for transcoding
+        const timer = setTimeout(() => {
+            try { if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath); } catch {}
+            resolve(null);
+        }, 90000);
 
-        return await new Promise<Buffer | null>((resolve) => {
-            const timer = setTimeout(() => {
-                try {
-                    if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
-                    if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
-                } catch {}
-                resolve(null);
-            }, 10000);
+        let cmdArgs: string[] = [];
 
+        if (accel === 'nvidia') {
+            cmdArgs = [
+                '-y', '-i', filePath,
+                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                '-c:v', 'h264_nvenc', '-preset', 'p4', '-b:v', '2000k',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart',
+                tempOutputPath
+            ];
+        } else if (accel === 'intel') {
+            const devPath = fs.existsSync('/dev/dri/renderD128') ? '/dev/dri/renderD128' : '/dev/dri/card0';
+            cmdArgs = [
+                '-y',
+                '-vaapi_device', devPath,
+                '-i', filePath,
+                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,format=nv12,hwupload',
+                '-c:v', 'h264_vaapi', '-qp', '24',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart',
+                tempOutputPath
+            ];
+        } else {
+            cmdArgs = [
+                '-y', '-i', filePath,
+                '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '24',
+                '-c:a', 'aac', '-b:a', '128k',
+                '-movflags', '+faststart',
+                tempOutputPath
+            ];
+        }
+
+        const runFfmpeg = (args: string[], onFailFallbackToCpu: boolean) => {
             try {
-                ffmpeg(tempInputPath)
-                    .videoCodec('libx264')
-                    .audioCodec('aac')
-                    .videoBitrate('1000k')
-                    .audioBitrate('128k')
-                    .size('1280x720')
-                    .autopad()
-                    .output(tempOutputPath)
-                    .on('end', () => {
+                const proc = spawn('ffmpeg', args);
+                proc.on('close', async (code) => {
+                    if (code === 0 && fs.existsSync(tempOutputPath)) {
                         clearTimeout(timer);
                         try {
-                            const proxyBuffer = fs.readFileSync(tempOutputPath);
-                            try {
-                                if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
-                                if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
-                            } catch {}
-                            resolve(proxyBuffer);
-                        } catch (error) {
-                            console.error('Error reading proxy buffer:', error);
+                            const buf = await fs.promises.readFile(tempOutputPath);
+                            await fs.promises.unlink(tempOutputPath).catch(() => {});
+                            resolve(buf);
+                            return;
+                        } catch {
                             resolve(null);
+                            return;
                         }
-                    })
-                    .on('error', (err) => {
+                    }
+
+                    if (onFailFallbackToCpu) {
+                        console.warn(`[Media Processor] Hardware acceleration failed (exit code ${code}), retrying with CPU software encoder...`);
+                        const cpuArgs = [
+                            '-y', '-i', filePath,
+                            '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26',
+                            '-c:a', 'aac', '-b:a', '128k',
+                            '-movflags', '+faststart',
+                            tempOutputPath
+                        ];
+                        runFfmpeg(cpuArgs, false);
+                    } else {
                         clearTimeout(timer);
-                        console.warn('FFmpeg video proxy generation failed (non-blocking):', err?.message || err);
-                        try {
-                            if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
-                            if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
-                        } catch {}
+                        try { if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath); } catch {}
                         resolve(null);
-                    })
-                    .run();
-            } catch (runErr) {
+                    }
+                });
+
+                proc.on('error', (err) => {
+                    console.warn(`[Media Processor] FFmpeg process error:`, err);
+                    if (onFailFallbackToCpu) {
+                        const cpuArgs = [
+                            '-y', '-i', filePath,
+                            '-vf', 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2',
+                            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '26',
+                            '-c:a', 'aac', '-b:a', '128k',
+                            '-movflags', '+faststart',
+                            tempOutputPath
+                        ];
+                        runFfmpeg(cpuArgs, false);
+                    } else {
+                        clearTimeout(timer);
+                        resolve(null);
+                    }
+                });
+            } catch {
                 clearTimeout(timer);
-                try {
-                    if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
-                } catch {}
                 resolve(null);
             }
-        });
+        };
+
+        runFfmpeg(cmdArgs, accel !== 'cpu');
+    });
+}
+
+export async function generateVideoProxy(buffer: Buffer, originalMime?: string): Promise<Buffer | null> {
+    const timestamp = Date.now();
+    const tempInputPath = path.join(os.tmpdir(), `temp_video_input_${timestamp}.mp4`);
+    try {
+        await fs.promises.writeFile(tempInputPath, buffer);
+        const result = await generateVideoProxyFromPath(tempInputPath);
+        try { if (fs.existsSync(tempInputPath)) await fs.promises.unlink(tempInputPath); } catch {}
+        return result;
     } catch (err) {
         console.warn('Error in generateVideoProxy:', err);
+        try { if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath); } catch {}
         return null;
     }
 }

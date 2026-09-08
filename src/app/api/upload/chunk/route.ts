@@ -7,6 +7,7 @@ import {
     generateImageThumbnail, 
     extractVideoMetadataFromPath,
     generateVideoThumbnailFromPath,
+    generateVideoProxyFromPath,
     extractAudioMetadata,
     generateAudioWaveform
 } from '@/lib/media-processor';
@@ -142,6 +143,19 @@ export async function POST(req: NextRequest) {
             } catch (thumbErr) {
                 console.warn('[Chunk Ingestion] Thumbnail extraction non-blocking error:', thumbErr);
             }
+
+            // Hardware-accelerated streaming video proxy (NVIDIA -> Intel QuickSync -> CPU fallback)
+            try {
+                const proxyBuffer = await generateVideoProxyFromPath(assembledPath);
+                if (proxyBuffer) {
+                    const videoProxyPath = `/mtc-dam-proxies/${timestamp}_proxy_${cleanName}.mp4`;
+                    await uploadAsset(videoProxyPath, proxyBuffer);
+                    proxyUri = videoProxyPath;
+                }
+            } catch (proxyErr) {
+                console.warn('[Chunk Ingestion] Video proxy generation non-blocking error:', proxyErr);
+            }
+
             if (!proxyUri) proxyUri = nextcloudPath;
         } else if (/\.(jpg|jpeg|png|webp|gif|svg|tiff|bmp)$/i.test(lowerName)) {
             type = 'image';

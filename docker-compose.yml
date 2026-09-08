@@ -23,6 +23,9 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_FROM=${SMTP_FROM}
       - SMTP_SECURE=${SMTP_SECURE:-false}
+    devices:
+      # Hardware GPU acceleration (Intel QuickSync / VAAPI, CoffeeLake GT2 UHD 630)
+      - /dev/dri:/dev/dri
     volumes:
       # Persistent volume for SQLite database
       - dam_db_data:/app/data
