@@ -153,6 +153,49 @@ docker compose up -d --build
 
 ---
 
+## Option 4: Run on a NAS (Synology, QNAP, TrueNAS, Unraid)
+
+Running MTC DAM directly on your NAS is **one of the best setups possible**, especially if your Nextcloud storage or media archive is already on that NAS:
+- **Zero latency**: Uploads, downloads, and video streams happen locally at LAN/internal storage speeds (no internet bottlenecks).
+- **24/7 Always-On**: Low power consumption and always accessible to team members.
+- **Unified Backups**: Both your SQLite database and assets live directly on RAID-protected NAS disks.
+
+### For Synology NAS (DSM 7.2+ with Container Manager):
+1. Open **Package Center** and ensure **Container Manager** (or Docker) is installed.
+2. Open **File Station**, navigate to the `docker` shared folder, and create a folder named `mtc-dam`.
+3. Inside `docker/mtc-dam`, upload your:
+   - `docker-compose.yml`
+   - `Dockerfile`
+   - Source files (or clone the repository via SSH).
+4. In **Container Manager**:
+   - Go to **Project** -> Click **Create**.
+   - **Project Name**: `mtc-dam`
+   - **Path**: `/docker/mtc-dam`
+   - **Source**: Select *Use existing docker-compose.yml*.
+   - Check *Start the project immediately after it is created*.
+5. Access your DAM at `http://<NAS-LOCAL-IP>:3000`.
+6. *(Optional)* In **Control Panel** -> **Login Portal** -> **Advanced** -> **Reverse Proxy**, create an HTTPS proxy rule pointing your domain to `localhost:3000` with Synology's built-in Let's Encrypt certificate.
+
+### For TrueNAS SCALE / Unraid / QNAP Container Station:
+- **QNAP**: Open **Container Station** -> **Applications** -> **Create** -> Paste `docker-compose.yml`.
+- **TrueNAS SCALE**: Go to **Apps** -> **Discover Apps** -> **Custom App** (or use Portainer / Docker Compose).
+- **Unraid**: Use the **Compose Manager** plugin or create a container from the Docker tab.
+
+---
+
+## What About Traditional Web Hosting?
+
+If you already have paid "web hosting", here is what you need to know:
+
+| Hosting Type | Supported? | Details |
+| :--- | :---: | :--- |
+| **Linux VPS / Cloud Server** *(Hetzner, DigitalOcean, Linode, Hostinger VPS, AWS)* | ✅ **100% Yes** | Full root access. Simply run `docker compose up -d`. Ideal for production. |
+| **Self-Hosted PaaS** *(Coolify, Dokploy, Portainer)* | ✅ **100% Yes** | Deploy directly by connecting your GitHub repo. Coolify handles SSL and updates automatically. |
+| **Managed App Hosting** *(Railway, Fly.io, Render)* | ✅ **Yes** | Supports the `Dockerfile` with persistent storage volumes. |
+| **Traditional Shared Hosting** *(cPanel, GoDaddy, Bluehost, Namecheap shared)* | ❌ **Not Recommended** | Shared hosting runs PHP/Apache. They do not support FFmpeg video processing, long-running Node.js background services, or high upload size limits. |
+
+---
+
 ## Environment Variables Reference
 
 | Variable | Description | Default |
