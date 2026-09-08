@@ -53,5 +53,5 @@ COPY --from=builder /app/seed-admin.mjs ./seed-admin.mjs
 
 EXPOSE 3000
 
-# Push DB schema on startup (creates/syncs SQLite tables if fresh container), ensure Admin exists, and start Next.js
-CMD ["sh", "-c", "npx prisma db push && node seed-admin.mjs && npm run start"]
+# Push DB schema on startup, ensure Admin exists, start Ingest Daemon, and start Next.js
+CMD ["sh", "-c", "npx prisma db push && node seed-admin.mjs && node scripts/ingest-daemon.mjs & npm run start"]
