@@ -149,12 +149,10 @@ export function AssetPreviewModal({
         }
     };
 
-    if (!isOpen || !currentAsset) return null;
-
     // Technical metadata parser
     let parsedMeta: Record<string, any> = {};
     try {
-        if (currentAsset.metadata) {
+        if (currentAsset?.metadata) {
             parsedMeta = typeof currentAsset.metadata === 'string'
                 ? JSON.parse(currentAsset.metadata)
                 : currentAsset.metadata;
@@ -225,8 +223,8 @@ export function AssetPreviewModal({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [isOpen, activeTab, currentAsset, assetFps]);
 
-    const currentVersionObj = currentAsset.versions?.find(v => v.versionNum === selectedVersion)
-        || currentAsset.versions?.[0];
+    const currentVersionObj = currentAsset?.versions?.find(v => v.versionNum === selectedVersion)
+        || currentAsset?.versions?.[0];
 
     // Distinguish between image thumbnails/waveforms and playable audio/video streams
     const isVideoFile = (uri?: string | null) => Boolean(uri && /\.(mp4|webm|m4v|mov|mkv|avi|mxf)$/i.test(uri));
@@ -256,7 +254,7 @@ export function AssetPreviewModal({
         ? currentVersionObj!.proxyUri!
         : (currentVersionObj?.nextcloudUri || '');
 
-    const formattedSize = (currentAsset.size / (1024 * 1024)).toFixed(1) + ' MB';
+    const formattedSize = currentAsset ? (currentAsset.size / (1024 * 1024)).toFixed(1) + ' MB' : '0 MB';
 
     // Status transition handler
     const handleStatusChange = async (newStatus: string) => {
@@ -318,6 +316,7 @@ export function AssetPreviewModal({
 
     // Generate Secure Share Link
     const handleGenerateShare = () => {
+        if (!currentAsset) return;
         const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
         const url = `${window.location.origin}/share/${token}?assetId=${currentAsset.id}`;
         setShareUrl(url);
@@ -336,6 +335,8 @@ export function AssetPreviewModal({
         const s = Math.floor(sec % 60);
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     };
+
+    if (!isOpen || !currentAsset) return null;
 
     return (
         <div style={{
