@@ -24,7 +24,7 @@ interface DashboardData {
     nextcloud: {
       connected: boolean;
       used?: number;
-      available?: number;
+      available?: number | string;
       error?: string;
     };
   };
@@ -54,12 +54,35 @@ const typeIcons: Record<string, string> = {
   document: '📄',
 };
 
-function formatBytes(bytes: number): string {
-  if (!bytes || bytes === 0) return '0 B';
+function formatBytes(bytes: number | string | undefined | null): string {
+  if (bytes === undefined || bytes === null || bytes === '') return '0 B';
+  const num = typeof bytes === 'number' ? bytes : parseFloat(String(bytes));
+  if (isNaN(num) || num <= 0) return '0 B';
   const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(num) / Math.log(k));
+  const safeIndex = Math.min(i, sizes.length - 1);
+  return parseFloat((num / Math.pow(k, safeIndex)).toFixed(1)) + ' ' + sizes[safeIndex];
+}
+
+function formatActivity(action: string, entityType: string): string {
+  const act = (action || '').toUpperCase();
+  const ent = (entityType || '').toLowerCase();
+  switch (act) {
+    case 'VIEW': return `viewed ${ent}`;
+    case 'CREATE': return `created ${ent}`;
+    case 'UPDATE': return `updated ${ent}`;
+    case 'DELETE': return `deleted ${ent}`;
+    case 'EXPORT': return `exported ${ent}`;
+    case 'TRANSCRIBE': return `transcribed ${ent}`;
+    case 'APPROVE': return `approved ${ent}`;
+    case 'REJECT': return `rejected ${ent}`;
+    case 'LOGIN': return `logged in`;
+    default: {
+      const past = act.endsWith('E') ? `${act.toLowerCase()}d` : `${act.toLowerCase()}ed`;
+      return `${past} ${ent}`;
+    }
+  }
 }
 
 function timeAgo(dateString: string): string {
@@ -391,27 +414,23 @@ export default function DashboardPage() {
               </div>
 
               <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 500 }}>
-                  {isNcConnected && storage?.nextcloud?.used !== undefined
-                    ? `${formatBytes(storage.nextcloud.used)} used`
-                    : `${formatBytes(storage?.totalBytes || 0)} used`}
+                <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 600 }}>
+                  {formatBytes(storage?.totalBytes || 0)} Media Assets
                 </span>
                 <span style={{ color: 'var(--text-muted)' }}>
-                  {isNcConnected && storage?.nextcloud?.available !== undefined
-                    ? `${formatBytes((storage.nextcloud.used || 0) + storage.nextcloud.available)} Total`
-                    : 'Unlimited (Local)'}
+                  {isNcConnected
+                    ? (storage?.nextcloud?.available === 'unlimited' || typeof storage?.nextcloud?.available !== 'number'
+                        ? 'Unlimited Quota'
+                        : `${formatBytes((storage.nextcloud.used || 0) + storage.nextcloud.available)} Quota`)
+                    : 'Local Fallback'}
                 </span>
               </div>
 
               <div style={{ width: '100%', height: '9px', backgroundColor: 'rgba(202, 222, 223, 0.1)', borderRadius: '6px', overflow: 'hidden', marginBottom: '16px' }}>
                 <div style={{
-                  width: isNcConnected && storage?.nextcloud?.available && storage.nextcloud.available > 0
-                    ? `${Math.min(100, Math.max(5, ((storage.nextcloud.used || 0) / ((storage.nextcloud.used || 0) + storage.nextcloud.available)) * 100))}%`
-                    : storage?.totalBytes && storage.totalBytes > 0 ? '15%' : '0%',
+                  width: '100%',
                   height: '100%',
-                  background: isNcConnected
-                    ? 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80)'
-                    : 'linear-gradient(90deg, var(--mtc-hunter-green), var(--mtc-cornsilk))',
+                  background: 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80)',
                   borderRadius: '6px',
                 }}></div>
               </div>
@@ -422,6 +441,24 @@ export default function DashboardPage() {
                 <div><span style={{ color: 'var(--text-muted)' }}>Audio:</span> {formatBytes(storage?.typeSizes?.audio || 0)}</div>
                 <div><span style={{ color: 'var(--text-muted)' }}>Docs:</span> {formatBytes(storage?.typeSizes?.document || 0)}</div>
               </div>
+
+              {isNcConnected && storage?.nextcloud?.used !== undefined && (
+                <div style={{
+                  marginTop: '14px',
+                  paddingTop: '10px',
+                  borderTop: '1px solid rgba(202, 222, 223, 0.1)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: '0.74rem',
+                  color: 'var(--text-dim)'
+                }}>
+                  <span>Nextcloud Storage Pool:</span>
+                  <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 500 }}>
+                    {formatBytes(storage.nextcloud.used)} used on TrueNAS
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Pipeline Activity */}
@@ -442,7 +479,7 @@ export default function DashboardPage() {
                   {data.recentActivities.map((act) => (
                     <div key={act.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.82rem' }}>
                       <span style={{ color: 'var(--mtc-cornsilk)' }}>
-                        <strong>{act.user?.name || 'User'}</strong> {act.action.toLowerCase()}d {act.entityType.toLowerCase()}
+                        <strong>{act.user?.name || 'User'}</strong> {formatActivity(act.action, act.entityType)}
                       </span>
                       <span style={{ color: 'var(--text-dim)', fontSize: '0.72rem' }}>{timeAgo(act.createdAt)}</span>
                     </div>

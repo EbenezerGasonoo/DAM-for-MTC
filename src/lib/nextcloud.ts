@@ -394,7 +394,25 @@ export async function scanNextcloudFiles(
 
                 for (const item of itemsList) {
                     const basename = item.basename || path.posix.basename(item.filename);
-                    if (basename.startsWith('.') || basename === '.Trash' || basename === 'Thumbs.db') continue;
+                    const normPath = (item.filename || '').replace(/\\/g, '/');
+
+                    // Ignore hidden files, system files, caches, and internal proxy storage
+                    if (
+                        normPath.includes('/mtc-dam-proxies') ||
+                        normPath.includes('/.cache') ||
+                        normPath.includes('/node_modules') ||
+                        basename.startsWith('.') ||
+                        basename === '.Trash' ||
+                        basename === 'Thumbs.db' ||
+                        basename === '.DS_Store'
+                    ) {
+                        continue;
+                    }
+
+                    // Ignore generated proxy/thumbnail/waveform artifacts
+                    if (/_proxy_|\.proxy\.|_thumb_|\.thumb\.|_waveform\./i.test(basename)) {
+                        continue;
+                    }
 
                     if (item.type === 'directory') {
                         if (recursive && current.depth < maxDepth) {
@@ -432,7 +450,15 @@ export async function scanNextcloudFiles(
                 try {
                     const entries = await fs.promises.readdir(dir, { withFileTypes: true });
                     for (const entry of entries) {
-                        if (entry.name.startsWith('.')) continue;
+                        if (
+                            entry.name.startsWith('.') ||
+                            entry.name === 'node_modules' ||
+                            entry.name === 'mtc-dam-proxies' ||
+                            entry.name === '.cache' ||
+                            /_proxy_|\.proxy\.|_thumb_|\.thumb\.|_waveform\./i.test(entry.name)
+                        ) {
+                            continue;
+                        }
                         const fullPath = path.join(dir, entry.name);
                         const relPath = relative ? `${relative}/${entry.name}` : entry.name;
                         if (entry.isDirectory()) {
