@@ -6,6 +6,7 @@ import Header from '@/components/Header';
 import { useBranding } from '@/components/BrandingContext';
 import { useAuth } from '@/lib/auth-context';
 import MtcLogo, { MtcLogoIcon } from '@/components/MtcLogo';
+import AiTranscriptionSettings from '@/components/AiTranscriptionSettings';
 
 interface ActivityItem {
     id: string;
@@ -67,7 +68,7 @@ export default function SettingsPage() {
     const { user } = useAuth();
     const isAdmin = user?.role === 'ADMIN';
 
-    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud' | 'notifications' | 'watchfolder'>('brand');
+    const [activeTab, setActiveTab] = useState<'brand' | 'users' | 'rbac' | 'watermark' | 'audit' | 'nextcloud' | 'notifications' | 'watchfolder' | 'ai'>('brand');
 
     // Brand Identity form state
     const [formBrandName, setFormBrandName] = useState(brandName);
@@ -980,6 +981,7 @@ export default function SettingsPage() {
                         { key: 'nextcloud', label: 'Cloud Storage & Nextcloud', icon: '☁️' },
                         { key: 'watchfolder', label: 'Ingest & Watch Folders', icon: '📂' },
                         { key: 'notifications', label: 'Email & Notifications', icon: '✉️' },
+                        { key: 'ai', label: 'AI Speech & Whisper', icon: '🎙️' },
                         { key: 'rbac', label: 'Role-Based Access Control (RBAC)', icon: '🛡️' },
                         { key: 'watermark', label: 'DRM & Watermark Profiles', icon: '🔒' },
                         { key: 'audit', label: 'Enterprise System Audit Log', icon: '📋' },
@@ -3974,6 +3976,11 @@ export default function SettingsPage() {
                             )}
                         </section>
                     </div>
+                )}
+
+                {/* TAB: AI SPEECH & WHISPER */}
+                {activeTab === 'ai' && (
+                    <AiTranscriptionSettings isAdmin={isAdmin} />
                 )}
 
                 {/* MODAL: NEXTCLOUD FOLDER EXPLORER & TARGET CHOOSER */}

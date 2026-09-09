@@ -1,11 +1,13 @@
 # Multi-stage Dockerfile for MTC DAM (Next.js + Prisma + FFmpeg + Sharp)
 FROM node:20-slim AS base
 
-# Install system dependencies: FFmpeg, OpenSSL (for Prisma), build essentials
+# Install system dependencies: FFmpeg, OpenSSL (for Prisma), curl, tar
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     openssl \
     ca-certificates \
+    curl \
+    tar \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -40,6 +42,19 @@ ENV HOSTNAME="0.0.0.0"
 
 # Create persistent storage folder for fallback asset storage
 RUN mkdir -p /app/public/storage
+
+# Install local on-premises whisper.cpp engine + ggml-base.bin model for offline/fallback AI transcription
+RUN mkdir -p /opt/whisper && \
+    curl -sL https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-ubuntu-x64.tar.gz | tar -xz -C /tmp && \
+    cp -r /tmp/whisper-bin-ubuntu-x64/* /opt/whisper/ && \
+    chmod +x /opt/whisper/whisper-cli && \
+    curl -sL https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin -o /opt/whisper/ggml-base.bin && \
+    rm -rf /tmp/whisper-bin-ubuntu-x64
+
+ENV LD_LIBRARY_PATH="/opt/whisper:${LD_LIBRARY_PATH}"
+ENV PATH="/opt/whisper:${PATH}"
+ENV WHISPER_CPP_PATH="/opt/whisper/whisper-cli"
+ENV WHISPER_MODEL_PATH="/opt/whisper/ggml-base.bin"
 
 # Copy built application & dependencies
 COPY --from=builder /app/package.json ./package.json
