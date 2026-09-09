@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthFromCookies } from '@/lib/auth';
 import { checkEntityAccess } from '@/lib/permissions';
+import { deleteAssetFile } from '@/lib/nextcloud';
+import { addDeletedUris } from '@/lib/deletedAssets';
 
 // GET /api/assets/[id] — Get single asset with full details
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -119,8 +121,35 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
             return NextResponse.json({ error: 'Access denied' }, { status: 403 });
         }
 
+        // 1. Fetch versions to know which remote and proxy files to delete & blocklist
+        const versions = await prisma.assetVersion.findMany({
+            where: { assetId: id },
+            select: { nextcloudUri: true, proxyUri: true },
+        });
+
+        const urisToBlocklist: string[] = [];
+        for (const v of versions) {
+            if (v.nextcloudUri) {
+                urisToBlocklist.push(v.nextcloudUri);
+                await deleteAssetFile(v.nextcloudUri);
+            }
+            if (v.proxyUri && v.proxyUri !== v.nextcloudUri) {
+                await deleteAssetFile(v.proxyUri);
+            }
+        }
+
+        if (urisToBlocklist.length > 0) {
+            await addDeletedUris(urisToBlocklist);
+        }
+
+        // 2. Cascade delete related database entities
         await prisma.comment.deleteMany({ where: { assetId: id } });
+        await prisma.assetFavorite.deleteMany({ where: { assetId: id } });
+        await prisma.collectionAsset.deleteMany({ where: { assetId: id } });
+        await prisma.customFieldValue.deleteMany({ where: { assetId: id } });
         await prisma.assetVersion.deleteMany({ where: { assetId: id } });
+
+        // 3. Delete the asset record
         await prisma.asset.delete({ where: { id } });
         return NextResponse.json({ success: true });
     } catch (error: unknown) {
@@ -128,3 +157,4 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
         return NextResponse.json({ error: message }, { status: 500 });
     }
 }
+

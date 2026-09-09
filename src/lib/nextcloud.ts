@@ -315,6 +315,38 @@ export async function moveAssetFile(sourcePath: string, destPath: string): Promi
     return false;
 }
 
+export async function deleteAssetFile(filePath: string): Promise<boolean> {
+    if (!filePath) return false;
+
+    // 1. Try Nextcloud WebDAV deletion
+    try {
+        const { client } = await getNextcloudClient();
+        if (client) {
+            const exists = await client.exists(filePath);
+            if (exists) {
+                await client.deleteFile(filePath);
+                console.log(`[Nextcloud WebDAV] Deleted remote file: ${filePath}`);
+            }
+        }
+    } catch (err: any) {
+        console.warn(`[Nextcloud WebDAV] Could not delete remote file ${filePath}:`, err?.message || err);
+    }
+
+    // 2. Try Local storage fallback deletion
+    try {
+        const localPath = getLocalPath(filePath);
+        if (fs.existsSync(localPath)) {
+            await fs.promises.unlink(localPath);
+            console.log(`[Local Storage] Deleted local file: ${localPath}`);
+        }
+    } catch (err: any) {
+        console.warn(`[Local Storage] Could not delete local file ${filePath}:`, err?.message || err);
+    }
+
+    return true;
+}
+
+
 export interface ScannedMediaFile {
     filename: string;
     basename: string;

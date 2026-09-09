@@ -5,7 +5,8 @@ import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import { SearchFilter, SearchFilters } from '@/components/SearchFilter';
 import { AssetPreviewModal } from '@/components/AssetPreviewModal';
-
+import { ActivityLog } from '@/components/ActivityLog';
+import { useAuth } from '@/lib/auth-context';
 import FavoriteButton from '@/components/FavoriteButton';
 
 type Asset = {
@@ -54,6 +55,9 @@ function formatSize(bytes: number): string {
 type ViewMode = 'grid' | 'list';
 
 export default function AssetsPage() {
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'ADMIN';
+
     const [viewMode, setViewMode] = useState<ViewMode>('grid');
     const [filters, setFilters] = useState<SearchFilters>({});
     const [assets, setAssets] = useState<Asset[]>([]);
@@ -681,6 +685,29 @@ export default function AssetsPage() {
                         <div style={{ fontSize: '3rem', marginBottom: '16px' }}>📂</div>
                         <div style={{ fontWeight: 500, marginBottom: '4px' }}>No assets match your filters</div>
                         <div style={{ fontSize: '0.85rem' }}>Try adjusting your search or filters</div>
+                    </div>
+                )}
+                {/* Enterprise Activity Log — Visible Only to Admins */}
+                {isAdmin && (
+                    <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                            <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span>📋</span>
+                                <span>Recent Asset Activity</span>
+                                <span style={{
+                                    fontSize: '0.68rem',
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                    backgroundColor: 'rgba(56, 102, 66, 0.35)',
+                                    color: '#A7F3D0',
+                                    border: '1px solid rgba(167, 243, 208, 0.3)',
+                                    borderRadius: '4px',
+                                    padding: '1px 6px',
+                                }}>Admin Only</span>
+                            </h3>
+                        </div>
+                        <ActivityLog entityType="ASSET" limit={10} />
                     </div>
                 )}
 

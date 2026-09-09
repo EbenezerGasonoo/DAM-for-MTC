@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/admin';
 import { prisma } from '@/lib/prisma';
 import { scanNextcloudFiles } from '@/lib/nextcloud';
 import { logActivity } from '@/lib/activity';
+import { getDeletedUris } from '@/lib/deletedAssets';
 
 // POST /api/settings/nextcloud/sync — Scan and index files from Nextcloud into DAM
 export async function POST(req: NextRequest) {
@@ -19,11 +20,12 @@ export async function POST(req: NextRequest) {
         // 1. Scan Nextcloud (or local storage fallback)
         const discoveredFiles = await scanNextcloudFiles(targetFolder, recursive);
 
-        // 2. Fetch all existing asset Nextcloud URIs from database
+        // 2. Fetch all existing asset Nextcloud URIs & deleted URIs to prevent resurrection
         const existingVersions = await prisma.assetVersion.findMany({
             select: { nextcloudUri: true },
         });
         const existingUris = new Set(existingVersions.map(v => v.nextcloudUri));
+        const deletedUris = await getDeletedUris();
 
         let newImported = 0;
         let existingSkipped = 0;
@@ -31,10 +33,12 @@ export async function POST(req: NextRequest) {
 
         // 3. Batch import new media assets
         for (const file of discoveredFiles) {
-            if (existingUris.has(file.filename)) {
+            const fileNorm = (file.filename || '').trim().toLowerCase();
+            if (existingUris.has(file.filename) || deletedUris.has(fileNorm)) {
                 existingSkipped++;
                 continue;
             }
+
 
             try {
                 await prisma.asset.create({

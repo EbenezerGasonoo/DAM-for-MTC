@@ -75,6 +75,7 @@ export function AssetPreviewModal({
     onAssetUpdated,
 }: AssetPreviewModalProps) {
     const { user } = useAuth();
+    const isAdmin = user?.role === 'ADMIN';
     const [currentAsset, setCurrentAsset] = useState<AssetDetail | null>(null);
     const [activeTab, setActiveTab] = useState<'preview' | 'metadata' | 'versions' | 'drm' | 'comments' | 'transcript' | 'audit'>('preview');
     const [isSavingStatus, setIsSavingStatus] = useState(false);
@@ -102,15 +103,25 @@ export function AssetPreviewModal({
     const videoRef = useRef<HTMLVideoElement>(null);
     const transcriptListRef = useRef<HTMLDivElement>(null);
 
+    // Ensure non-admins cannot stay on audit tab
+    useEffect(() => {
+        if (!isAdmin && activeTab === 'audit') {
+            setActiveTab('preview');
+        }
+    }, [isAdmin, activeTab]);
+
     // Synchronize asset and fetch fresh full asset details with relations
     useEffect(() => {
         if (initialAsset && isOpen) {
             setCurrentAsset(initialAsset);
             setSelectedVersion(initialAsset.versions?.[0]?.versionNum || 1);
             fetchFullAsset(initialAsset.id);
-            fetchAssetAudit(initialAsset.id);
+            if (isAdmin) {
+                fetchAssetAudit(initialAsset.id);
+            }
         }
-    }, [initialAsset, isOpen]);
+    }, [initialAsset, isOpen, isAdmin]);
+
 
     const fetchFullAsset = async (id: string) => {
         try {
@@ -496,7 +507,7 @@ export function AssetPreviewModal({
                         { key: 'drm', label: 'Rights & DRM', icon: '🛡️' },
                         { key: 'comments', label: `Collaboration (${commentsList.length})`, icon: '💬' },
                         { key: 'transcript', label: `Transcript & Dialogue${transcriptData ? ' ✓' : ''}`, icon: '🎙️' },
-                        { key: 'audit', label: 'Audit Trail', icon: '📋' },
+                        ...(isAdmin ? [{ key: 'audit', label: 'Audit Trail', icon: '📋' }] : []),
                     ].map(tab => (
                         <button
                             key={tab.key}
@@ -1477,8 +1488,8 @@ export function AssetPreviewModal({
                         </div>
                     )}
 
-                    {/* TAB 6: AUDIT TRAIL */}
-                    {activeTab === 'audit' && (
+                    {/* TAB 6: AUDIT TRAIL (ADMIN ONLY) */}
+                    {activeTab === 'audit' && isAdmin && (
                         <div style={{ maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>Enterprise Asset Audit Trail</h3>

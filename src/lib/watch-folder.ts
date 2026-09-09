@@ -20,6 +20,8 @@ import {
     generateAudioWaveform 
 } from './media-processor';
 import { logActivity } from './activity';
+import { getDeletedUris } from './deletedAssets';
+
 
 export interface WatchFolderConfig {
     enabled: boolean;
@@ -197,6 +199,7 @@ export async function scanAndIngestWatchFolder(userId?: string): Promise<IngestR
             if (v.nextcloudUri) existingUris.add(v.nextcloudUri);
             if (v.proxyUri) existingUris.add(v.proxyUri);
         }
+        const deletedUris = await getDeletedUris();
 
         let newImported = 0;
         let existingSkipped = 0;
@@ -204,7 +207,8 @@ export async function scanAndIngestWatchFolder(userId?: string): Promise<IngestR
 
         // 3. Process each newly discovered file
         for (const file of filesToProcess) {
-            if (existingUris.has(file.filename)) {
+            const fileNorm = (file.filename || '').trim().toLowerCase();
+            if (existingUris.has(file.filename) || deletedUris.has(fileNorm)) {
                 existingSkipped++;
                 continue;
             }
