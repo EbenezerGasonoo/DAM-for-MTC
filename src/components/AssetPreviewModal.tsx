@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
+import { formatPlayerTimecode, parseFramerate, stepFrames } from '@/lib/timecode';
 
 export interface AssetDetail {
     id: string;
@@ -27,6 +28,8 @@ export interface AssetDetail {
     }>;
     metadata?: string;
     customMetadata?: string;
+    transcript?: string;
+    transcriptStatus?: string;
     licenseInfo?: {
         licenseName: string;
         licenseType: string;
@@ -73,7 +76,7 @@ export function AssetPreviewModal({
 }: AssetPreviewModalProps) {
     const { user } = useAuth();
     const [currentAsset, setCurrentAsset] = useState<AssetDetail | null>(null);
-    const [activeTab, setActiveTab] = useState<'preview' | 'metadata' | 'versions' | 'drm' | 'comments' | 'audit'>('preview');
+    const [activeTab, setActiveTab] = useState<'preview' | 'metadata' | 'versions' | 'drm' | 'comments' | 'transcript' | 'audit'>('preview');
     const [isSavingStatus, setIsSavingStatus] = useState(false);
     const [newComment, setNewComment] = useState('');
     const [commentTimestamp, setCommentTimestamp] = useState<number | null>(null);
@@ -86,10 +89,18 @@ export function AssetPreviewModal({
     const [zoomLevel, setZoomLevel] = useState<number>(100);
     const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
     const [currentVideoTime, setCurrentVideoTime] = useState<number>(0);
+    const [videoDuration, setVideoDuration] = useState<number>(0);
+    const [showMarkerExportMenu, setShowMarkerExportMenu] = useState(false);
+    const [isTranscribing, setIsTranscribing] = useState(false);
+    const [transcriptSearch, setTranscriptSearch] = useState('');
+    const [transcriptData, setTranscriptData] = useState<any | null>(null);
+    const [transcriptError, setTranscriptError] = useState<string | null>(null);
+    const [autoScrollTranscript, setAutoScrollTranscript] = useState(true);
     const [activityLogs, setActivityLogs] = useState<any[]>([]);
     const [loadingAudit, setLoadingAudit] = useState(false);
 
     const videoRef = useRef<HTMLVideoElement>(null);
+    const transcriptListRef = useRef<HTMLDivElement>(null);
 
     // Synchronize asset and fetch fresh full asset details with relations
     useEffect(() => {
@@ -108,6 +119,11 @@ export function AssetPreviewModal({
                 const data = await res.json();
                 setCurrentAsset(data);
                 if (data.comments) setCommentsList(data.comments);
+                if (data.transcript) {
+                    try {
+                        setTranscriptData(JSON.parse(data.transcript));
+                    } catch { }
+                }
                 if (data.versions?.length) {
                     setSelectedVersion(data.versions[0].versionNum);
                 }
@@ -146,6 +162,68 @@ export function AssetPreviewModal({
     } catch {
         parsedMeta = {};
     }
+
+    const assetFps = parseFramerate(parsedMeta.framerate).fps;
+
+    const handleStepFrame = (frameDelta: number) => {
+        if (!videoRef.current) return;
+        const newTime = stepFrames(videoRef.current.currentTime, frameDelta, assetFps);
+        videoRef.current.currentTime = newTime;
+        setCurrentVideoTime(newTime);
+    };
+
+    const handleTriggerTranscription = async () => {
+        if (!currentAsset) return;
+        setIsTranscribing(true);
+        setTranscriptError(null);
+        try {
+            const res = await fetch(`/api/assets/${currentAsset.id}/transcribe`, {
+                method: 'POST',
+            });
+            const data = await res.json();
+            if (res.ok && data.success && data.transcript) {
+                setTranscriptData(data.transcript);
+                setCurrentAsset(prev => prev ? { ...prev, transcript: JSON.stringify(data.transcript), transcriptStatus: 'COMPLETED' } : null);
+            } else {
+                setTranscriptError(data.error || 'Transcription failed');
+            }
+        } catch (err: any) {
+            setTranscriptError(err?.message || 'Error triggering transcription');
+        } finally {
+            setIsTranscribing(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!isOpen || activeTab !== 'preview' || currentAsset?.type !== 'video') return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                handleStepFrame(-1);
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                handleStepFrame(1);
+            } else if (e.key === ' ' || e.code === 'Space') {
+                e.preventDefault();
+                if (videoRef.current) {
+                    if (videoRef.current.paused) videoRef.current.play();
+                    else videoRef.current.pause();
+                }
+            } else if (e.key === 'k' || e.key === 'K') {
+                if (videoRef.current) videoRef.current.pause();
+            } else if (e.key === 'j' || e.key === 'J') {
+                handleStepFrame(-Math.round(assetFps));
+            } else if (e.key === 'l' || e.key === 'L') {
+                handleStepFrame(Math.round(assetFps));
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, activeTab, currentAsset, assetFps]);
 
     const currentVersionObj = currentAsset.versions?.find(v => v.versionNum === selectedVersion)
         || currentAsset.versions?.[0];
@@ -416,6 +494,7 @@ export function AssetPreviewModal({
                         { key: 'versions', label: `Version Stack (${currentAsset.versions?.length || 1})`, icon: '📚' },
                         { key: 'drm', label: 'Rights & DRM', icon: '🛡️' },
                         { key: 'comments', label: `Collaboration (${commentsList.length})`, icon: '💬' },
+                        { key: 'transcript', label: `Transcript & Dialogue${transcriptData ? ' ✓' : ''}`, icon: '🎙️' },
                         { key: 'audit', label: 'Audit Trail', icon: '📋' },
                     ].map(tab => (
                         <button
@@ -469,37 +548,228 @@ export function AssetPreviewModal({
                                             controls
                                             playsInline
                                             preload="metadata"
+                                            onLoadedMetadata={() => {
+                                                if (videoRef.current) setVideoDuration(videoRef.current.duration);
+                                            }}
                                             onTimeUpdate={() => {
-                                                if (videoRef.current) setCurrentVideoTime(videoRef.current.currentTime);
+                                                if (videoRef.current) {
+                                                    setCurrentVideoTime(videoRef.current.currentTime);
+                                                    if (!videoDuration && videoRef.current.duration) {
+                                                        setVideoDuration(videoRef.current.duration);
+                                                    }
+                                                }
                                             }}
                                             style={{ width: '100%', maxHeight: '55vh', backgroundColor: '#000' }}
                                         />
+
+                                        {/* Interactive Timeline Marker Track */}
+                                        <div
+                                            style={{
+                                                position: 'relative',
+                                                height: '14px',
+                                                backgroundColor: '#11191B',
+                                                borderTop: '1px solid var(--border-color)',
+                                                borderBottom: '1px solid rgba(202, 222, 223, 0.1)',
+                                                cursor: 'pointer',
+                                            }}
+                                            onClick={(e) => {
+                                                const rect = e.currentTarget.getBoundingClientRect();
+                                                const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                                                if (videoRef.current && videoDuration > 0) {
+                                                    const targetTime = ratio * videoDuration;
+                                                    videoRef.current.currentTime = targetTime;
+                                                    setCurrentVideoTime(targetTime);
+                                                }
+                                            }}
+                                            title="Click timeline to seek. Pins represent director/editor comments."
+                                        >
+                                            {/* Progress Fill */}
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                bottom: 0,
+                                                width: `${videoDuration > 0 ? (currentVideoTime / videoDuration) * 100 : 0}%`,
+                                                backgroundColor: 'rgba(56, 102, 66, 0.45)',
+                                                pointerEvents: 'none',
+                                            }} />
+
+                                            {/* Comment Marker Pins */}
+                                            {commentsList
+                                                .filter(c => c.timestampFrame !== undefined && c.timestampFrame !== null && !isNaN(c.timestampFrame))
+                                                .map((c, i) => {
+                                                    const leftPct = videoDuration > 0 ? (c.timestampFrame / videoDuration) * 100 : 0;
+                                                    return (
+                                                        <div
+                                                            key={c.id || i}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (videoRef.current) {
+                                                                    videoRef.current.currentTime = c.timestampFrame;
+                                                                    setCurrentVideoTime(c.timestampFrame);
+                                                                }
+                                                            }}
+                                                            title={`[${formatPlayerTimecode(c.timestampFrame, assetFps)}] ${c.author?.name || 'Reviewer'}: ${c.content}`}
+                                                            style={{
+                                                                position: 'absolute',
+                                                                top: '2px',
+                                                                left: `${leftPct}%`,
+                                                                transform: 'translateX(-50%)',
+                                                                width: '10px',
+                                                                height: '10px',
+                                                                borderRadius: '50%',
+                                                                backgroundColor: '#38BDF8',
+                                                                border: '1.5px solid #000',
+                                                                cursor: 'pointer',
+                                                                zIndex: 3,
+                                                                boxShadow: '0 0 5px rgba(56, 189, 248, 0.9)',
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
+                                        </div>
+
                                         {/* Video Control Ribbon */}
                                         <div style={{
                                             padding: '10px 16px',
                                             backgroundColor: 'rgba(20, 28, 30, 0.95)',
-                                            borderTop: '1px solid var(--border-color)',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'space-between',
+                                            flexWrap: 'wrap',
+                                            gap: '10px',
                                             fontSize: '0.8rem',
                                         }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                <code style={{ color: 'var(--mtc-cornsilk)', fontWeight: 600 }}>
-                                                    ⏱ {formatSeconds(currentVideoTime)} / {parsedMeta.duration || '00:00'}
+                                            {/* Timecode & Frame Stepping */}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                <code
+                                                    title="Frame-accurate SMPTE Timecode (HH:MM:SS:FF)"
+                                                    style={{
+                                                        color: '#A7F3D0',
+                                                        fontWeight: 700,
+                                                        fontFamily: 'monospace',
+                                                        fontSize: '0.84rem',
+                                                        backgroundColor: 'rgba(0,0,0,0.6)',
+                                                        padding: '4px 8px',
+                                                        borderRadius: '4px',
+                                                        border: '1px solid rgba(56, 102, 66, 0.5)',
+                                                    }}
+                                                >
+                                                    ⏱ {formatPlayerTimecode(currentVideoTime, assetFps)}
                                                 </code>
+                                                <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
+                                                    / {formatPlayerTimecode(videoDuration || 0, assetFps)} ({assetFps} fps)
+                                                </span>
+
+                                                {/* Frame Step Controls */}
+                                                <div style={{ display: 'flex', gap: '3px', marginLeft: '4px' }}>
+                                                    <button
+                                                        onClick={() => handleStepFrame(-1)}
+                                                        title="Step back 1 frame (Left Arrow)"
+                                                        className="btn btn-secondary"
+                                                        style={{ padding: '2px 6px', fontSize: '0.68rem' }}
+                                                    >
+                                                        ◀ 1F
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleStepFrame(1)}
+                                                        title="Step forward 1 frame (Right Arrow)"
+                                                        className="btn btn-secondary"
+                                                        style={{ padding: '2px 6px', fontSize: '0.68rem' }}
+                                                    >
+                                                        1F ▶
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleStepFrame(-Math.round(assetFps))}
+                                                        title="Jump back 1 second (J)"
+                                                        className="btn btn-secondary"
+                                                        style={{ padding: '2px 6px', fontSize: '0.68rem' }}
+                                                    >
+                                                        ◀ 1s
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleStepFrame(Math.round(assetFps))}
+                                                        title="Jump forward 1 second (L)"
+                                                        className="btn btn-secondary"
+                                                        style={{ padding: '2px 6px', fontSize: '0.68rem' }}
+                                                    >
+                                                        1s ▶
+                                                    </button>
+                                                </div>
+
                                                 <button
                                                     onClick={() => {
                                                         setCommentTimestamp(currentVideoTime);
                                                         setActiveTab('comments');
                                                     }}
                                                     className="btn btn-secondary"
-                                                    style={{ padding: '3px 8px', fontSize: '0.72rem' }}
+                                                    style={{ padding: '3px 8px', fontSize: '0.72rem', marginLeft: '6px' }}
                                                 >
-                                                    + Comment at {formatSeconds(currentVideoTime)}
+                                                    + Pin Note at {formatPlayerTimecode(currentVideoTime, assetFps)}
                                                 </button>
                                             </div>
+
+                                            {/* Right Controls: NLE Export & Playback Speed */}
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                {/* NLE Marker Export Dropdown */}
+                                                <div style={{ position: 'relative' }}>
+                                                    <button
+                                                        onClick={() => setShowMarkerExportMenu(!showMarkerExportMenu)}
+                                                        className="btn btn-secondary"
+                                                        style={{ padding: '4px 10px', fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                                        title="Export frame-accurate comments as timeline markers"
+                                                    >
+                                                        🎬 Export Markers ▾
+                                                    </button>
+
+                                                    {showMarkerExportMenu && (
+                                                        <div style={{
+                                                            position: 'absolute',
+                                                            bottom: '100%',
+                                                            right: 0,
+                                                            marginBottom: '6px',
+                                                            backgroundColor: 'var(--panel-bg)',
+                                                            border: '1px solid var(--border-color)',
+                                                            borderRadius: 'var(--radius-md)',
+                                                            padding: '6px',
+                                                            boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                                                            zIndex: 100,
+                                                            minWidth: '230px',
+                                                            display: 'flex',
+                                                            flexDirection: 'column',
+                                                            gap: '4px',
+                                                        }}>
+                                                            <a
+                                                                href={`/api/assets/${currentAsset.id}/markers?format=resolve-edl&fps=${assetFps}`}
+                                                                download
+                                                                className="btn btn-secondary"
+                                                                style={{ justifyContent: 'flex-start', fontSize: '0.75rem', padding: '6px 10px', textDecoration: 'none' }}
+                                                                onClick={() => setShowMarkerExportMenu(false)}
+                                                            >
+                                                                🎞️ DaVinci Resolve EDL (.edl)
+                                                            </a>
+                                                            <a
+                                                                href={`/api/assets/${currentAsset.id}/markers?format=resolve-csv&fps=${assetFps}`}
+                                                                download
+                                                                className="btn btn-secondary"
+                                                                style={{ justifyContent: 'flex-start', fontSize: '0.75rem', padding: '6px 10px', textDecoration: 'none' }}
+                                                                onClick={() => setShowMarkerExportMenu(false)}
+                                                            >
+                                                                📊 DaVinci Resolve CSV (.csv)
+                                                            </a>
+                                                            <a
+                                                                href={`/api/assets/${currentAsset.id}/markers?format=premiere-csv&fps=${assetFps}`}
+                                                                download
+                                                                className="btn btn-secondary"
+                                                                style={{ justifyContent: 'flex-start', fontSize: '0.75rem', padding: '6px 10px', textDecoration: 'none' }}
+                                                                onClick={() => setShowMarkerExportMenu(false)}
+                                                            >
+                                                                🎬 Adobe Premiere Pro CSV (.csv)
+                                                            </a>
+                                                        </div>
+                                                    )}
+                                                </div>
+
                                                 <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Speed:</span>
                                                 {[0.5, 1, 1.5, 2].map(speed => (
                                                     <button
@@ -925,16 +1195,33 @@ export function AssetPreviewModal({
                                                         {comment.author?.name || 'Producer'}
                                                     </span>
                                                     {comment.timestampFrame !== undefined && comment.timestampFrame !== null && (
-                                                        <span style={{
-                                                            fontSize: '0.7rem',
-                                                            backgroundColor: 'rgba(56, 102, 66, 0.3)',
-                                                            color: '#A7F3D0',
-                                                            padding: '2px 6px',
-                                                            borderRadius: '4px',
-                                                            fontFamily: 'monospace',
-                                                        }}>
-                                                            ⏱ {formatSeconds(comment.timestampFrame)}
-                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setActiveTab('preview');
+                                                                if (videoRef.current) {
+                                                                    videoRef.current.currentTime = comment.timestampFrame;
+                                                                    setCurrentVideoTime(comment.timestampFrame);
+                                                                    videoRef.current.play();
+                                                                }
+                                                            }}
+                                                            title="Click to seek video to this exact frame"
+                                                            style={{
+                                                                fontSize: '0.72rem',
+                                                                backgroundColor: 'rgba(56, 102, 66, 0.3)',
+                                                                color: '#A7F3D0',
+                                                                padding: '2px 8px',
+                                                                borderRadius: '4px',
+                                                                border: '1px solid rgba(56, 102, 66, 0.5)',
+                                                                fontFamily: 'monospace',
+                                                                cursor: 'pointer',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px',
+                                                            }}
+                                                        >
+                                                            ⏱ {formatPlayerTimecode(comment.timestampFrame, assetFps)} ↗
+                                                        </button>
                                                     )}
                                                 </div>
                                                 <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
@@ -952,6 +1239,240 @@ export function AssetPreviewModal({
                                     </div>
                                 )}
                             </div>
+                        </div>
+                    )}
+
+                    {/* TAB 6: AI SPEECH-TO-TEXT TRANSCRIPT */}
+                    {activeTab === 'transcript' && (
+                        <div style={{ maxWidth: '880px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Header Ribbon with Actions & Search */}
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: '12px',
+                                backgroundColor: 'var(--panel-bg)',
+                                padding: '16px 20px',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--border-color)',
+                            }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <span style={{ fontSize: '1.2rem' }}>🎙️</span>
+                                        <h3 style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--mtc-cornsilk)' }}>
+                                            AI Dialogue Transcript
+                                        </h3>
+                                        {transcriptData && (
+                                            <span style={{
+                                                fontSize: '0.7rem',
+                                                backgroundColor: 'rgba(56, 102, 66, 0.3)',
+                                                color: '#A7F3D0',
+                                                padding: '2px 8px',
+                                                borderRadius: '10px',
+                                                fontWeight: 600,
+                                            }}>
+                                                Whisper Indexed ({transcriptData.segments?.length || 0} cues)
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                        Click any spoken sentence to instantly jump the video player to that exact moment.
+                                    </p>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    {transcriptData && (
+                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                            <a
+                                                href={`/api/assets/${currentAsset.id}/transcript?format=srt`}
+                                                download
+                                                className="btn btn-secondary"
+                                                style={{ padding: '6px 10px', fontSize: '0.75rem', textDecoration: 'none' }}
+                                                title="Download SubRip Subtitles"
+                                            >
+                                                ⬇ .SRT
+                                            </a>
+                                            <a
+                                                href={`/api/assets/${currentAsset.id}/transcript?format=vtt`}
+                                                download
+                                                className="btn btn-secondary"
+                                                style={{ padding: '6px 10px', fontSize: '0.75rem', textDecoration: 'none' }}
+                                                title="Download WebVTT captions"
+                                            >
+                                                ⬇ .VTT
+                                            </a>
+                                            <a
+                                                href={`/api/assets/${currentAsset.id}/transcript?format=txt`}
+                                                download
+                                                className="btn btn-secondary"
+                                                style={{ padding: '6px 10px', fontSize: '0.75rem', textDecoration: 'none' }}
+                                                title="Download Plain Text Script"
+                                            >
+                                                ⬇ .TXT
+                                            </a>
+                                        </div>
+                                    )}
+
+                                    <button
+                                        onClick={handleTriggerTranscription}
+                                        disabled={isTranscribing || currentAsset.transcriptStatus === 'PROCESSING'}
+                                        className="btn btn-primary"
+                                        style={{ padding: '7px 14px', fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                    >
+                                        {isTranscribing || currentAsset.transcriptStatus === 'PROCESSING'
+                                            ? '⏳ Transcribing with Whisper...'
+                                            : transcriptData
+                                            ? '↻ Re-Transcribe Audio'
+                                            : '✨ Transcribe Audio with AI'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {transcriptError && (
+                                <div style={{
+                                    padding: '12px 16px',
+                                    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                                    borderRadius: '6px',
+                                    fontSize: '0.82rem',
+                                    color: '#FCA5A5',
+                                }}>
+                                    ⚠️ {transcriptError}
+                                </div>
+                            )}
+
+                            {/* Live Search & Segment List */}
+                            {transcriptData && transcriptData.segments && transcriptData.segments.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    {/* Search in dialogue */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <input
+                                            type="text"
+                                            placeholder="Search spoken dialogue (e.g., names, locations, topics)..."
+                                            value={transcriptSearch}
+                                            onChange={(e) => setTranscriptSearch(e.target.value)}
+                                            style={{
+                                                flex: 1,
+                                                backgroundColor: 'var(--bg-color)',
+                                                border: '1px solid var(--border-color)',
+                                                color: 'var(--mtc-cornsilk)',
+                                                borderRadius: '6px',
+                                                padding: '8px 12px',
+                                                fontSize: '0.84rem',
+                                                outline: 'none',
+                                            }}
+                                        />
+                                        {transcriptSearch && (
+                                            <button
+                                                onClick={() => setTranscriptSearch('')}
+                                                className="btn btn-secondary"
+                                                style={{ padding: '6px 10px', fontSize: '0.75rem' }}
+                                            >
+                                                Clear
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Segments Display */}
+                                    <div
+                                        ref={transcriptListRef}
+                                        style={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            gap: '8px',
+                                            maxHeight: '480px',
+                                            overflowY: 'auto',
+                                            paddingRight: '4px',
+                                        }}
+                                    >
+                                        {transcriptData.segments
+                                            .filter((s: any) => !transcriptSearch.trim() || s.text.toLowerCase().includes(transcriptSearch.toLowerCase()))
+                                            .map((seg: any) => {
+                                                const isCurrent = currentVideoTime >= seg.start && currentVideoTime <= seg.end;
+                                                return (
+                                                    <div
+                                                        key={seg.id}
+                                                        onClick={() => {
+                                                            setActiveTab('preview');
+                                                            if (videoRef.current) {
+                                                                videoRef.current.currentTime = seg.start;
+                                                                setCurrentVideoTime(seg.start);
+                                                                videoRef.current.play();
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            padding: '12px 16px',
+                                                            backgroundColor: isCurrent ? 'rgba(56, 102, 66, 0.25)' : 'var(--bg-color)',
+                                                            border: '1px solid ' + (isCurrent ? 'var(--mtc-hunter-green)' : 'var(--border-color)'),
+                                                            borderRadius: 'var(--radius-sm)',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'flex-start',
+                                                            gap: '14px',
+                                                            transition: 'all 0.15s ease',
+                                                        }}
+                                                        title="Click to jump video to this dialogue line"
+                                                        onMouseEnter={(e) => {
+                                                            if (!isCurrent) e.currentTarget.style.backgroundColor = 'rgba(202, 222, 223, 0.05)';
+                                                        }}
+                                                        onMouseLeave={(e) => {
+                                                            if (!isCurrent) e.currentTarget.style.backgroundColor = 'var(--bg-color)';
+                                                        }}
+                                                    >
+                                                        <span style={{
+                                                            fontFamily: 'monospace',
+                                                            fontWeight: 700,
+                                                            fontSize: '0.75rem',
+                                                            color: isCurrent ? '#A7F3D0' : 'var(--mtc-hunter-green)',
+                                                            backgroundColor: 'rgba(0,0,0,0.4)',
+                                                            padding: '3px 6px',
+                                                            borderRadius: '4px',
+                                                            flexShrink: 0,
+                                                        }}>
+                                                            {formatPlayerTimecode(seg.start, assetFps)}
+                                                        </span>
+                                                        <p style={{
+                                                            margin: 0,
+                                                            fontSize: '0.88rem',
+                                                            color: isCurrent ? 'var(--mtc-cornsilk)' : 'var(--text-muted)',
+                                                            lineHeight: '1.45',
+                                                            fontWeight: isCurrent ? 500 : 400,
+                                                        }}>
+                                                            {seg.text}
+                                                        </p>
+                                                    </div>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div style={{
+                                    textAlign: 'center',
+                                    padding: '48px 24px',
+                                    backgroundColor: 'var(--bg-color)',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px dashed var(--border-color)',
+                                }}>
+                                    <div style={{ fontSize: '2.4rem', marginBottom: '12px' }}>🎙️</div>
+                                    <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '6px' }}>
+                                        No Speech Transcript Yet
+                                    </h4>
+                                    <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', maxWidth: '520px', margin: '0 auto 20px auto', lineHeight: '1.5' }}>
+                                        Extract spoken words, dialogue, and interviews using AI Speech-to-Text. Once transcribed, you can search for words spoken on camera, click to jump to exact sentences, and export subtitle files.
+                                    </p>
+                                    <button
+                                        onClick={handleTriggerTranscription}
+                                        disabled={isTranscribing || currentAsset.transcriptStatus === 'PROCESSING'}
+                                        className="btn btn-primary"
+                                        style={{ padding: '9px 20px', fontSize: '0.84rem' }}
+                                    >
+                                        {isTranscribing || currentAsset.transcriptStatus === 'PROCESSING'
+                                            ? '⏳ Transcribing with Whisper AI...'
+                                            : '✨ Transcribe Audio with Whisper AI'}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
 

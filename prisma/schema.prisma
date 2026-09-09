@@ -64,6 +64,8 @@ model Asset {
   collections       CollectionAsset[]
   metadata          String?  // Flexible metadata (resolution, duration, target platform etc.)
   customMetadata    String?
+  transcript        String?  // JSON array of timestamped dialogue segments and fullText
+  transcriptStatus  String   @default("IDLE") // IDLE, PROCESSING, COMPLETED, ERROR
   watermarkProfileId String?
   watermarkProfile  WatermarkProfile? @relation(fields: [watermarkProfileId], references: [id])
   licenseInfoId     String?  @unique

@@ -30,12 +30,13 @@ export async function GET(req: NextRequest) {
 
         const where: Record<string, unknown> = {};
 
-        // Full-text search across title, description, and tags
+        // Full-text search across title, description, tags, and AI speech transcript
         if (search) {
             where.OR = [
                 { title: { contains: search } },
                 { description: { contains: search } },
                 { tags: { some: { name: { contains: search } } } },
+                { transcript: { contains: search } },
             ];
         }
 
