@@ -5,7 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import { SearchFilter, SearchFilters } from '@/components/SearchFilter';
 import { AssetPreviewModal } from '@/components/AssetPreviewModal';
-import { ActivityLog } from '@/components/ActivityLog';
+
 import FavoriteButton from '@/components/FavoriteButton';
 
 type Asset = {
@@ -684,10 +684,7 @@ export default function AssetsPage() {
                     </div>
                 )}
 
-                {/* Activity Log */}
-                <div style={{ marginTop: '40px', paddingTop: '20px', borderTop: '1px solid var(--border-color)' }}>
-                    <ActivityLog entityType="ASSET" limit={10} />
-                </div>
+
 
                 {/* FLOATING ENTERPRISE BULK ACTION TOOLBAR */}
                 {selectedAssetIds.size > 0 && (
