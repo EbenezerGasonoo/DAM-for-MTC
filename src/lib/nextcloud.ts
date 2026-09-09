@@ -327,7 +327,7 @@ export interface ScannedMediaFile {
 }
 
 export const EXTENSION_MAP: Record<string, { type: 'video' | 'image' | 'audio' | 'document'; mime: string }> = {
-    // Video
+    // Video — standard web/delivery formats
     mp4: { type: 'video', mime: 'video/mp4' },
     mov: { type: 'video', mime: 'video/quicktime' },
     webm: { type: 'video', mime: 'video/webm' },
@@ -336,8 +336,17 @@ export const EXTENSION_MAP: Record<string, { type: 'video' | 'image' | 'audio' |
     m4v: { type: 'video', mime: 'video/mp4' },
     wmv: { type: 'video', mime: 'video/x-ms-wmv' },
     flv: { type: 'video', mime: 'video/x-flv' },
+    // Video — professional / broadcast camera formats
+    mxf: { type: 'video', mime: 'application/mxf' },          // Sony XDCAM, ARRI, Panasonic
+    r3d: { type: 'video', mime: 'video/x-red-r3d' },           // RED camera RAW
+    braw: { type: 'video', mime: 'video/x-blackmagic-raw' },   // Blackmagic RAW
+    mts: { type: 'video', mime: 'video/mp2t' },                // Sony AVCHD
+    m2ts: { type: 'video', mime: 'video/mp2t' },               // Blu-ray / Sony AVCHD
+    ts: { type: 'video', mime: 'video/mp2t' },                 // MPEG Transport Stream
+    dv: { type: 'video', mime: 'video/x-dv' },                 // DV tape format
+    vob: { type: 'video', mime: 'video/dvd' },                 // DVD VOB
 
-    // Image
+    // Image — standard
     jpg: { type: 'image', mime: 'image/jpeg' },
     jpeg: { type: 'image', mime: 'image/jpeg' },
     png: { type: 'image', mime: 'image/png' },
@@ -350,6 +359,24 @@ export const EXTENSION_MAP: Record<string, { type: 'video' | 'image' | 'audio' |
     tiff: { type: 'image', mime: 'image/tiff' },
     bmp: { type: 'image', mime: 'image/bmp' },
     ico: { type: 'image', mime: 'image/x-icon' },
+    heic: { type: 'image', mime: 'image/heic' },               // iPhone HEIC
+    heif: { type: 'image', mime: 'image/heif' },               // High Efficiency Image
+    avif: { type: 'image', mime: 'image/avif' },               // AV1 image
+    // Image — professional camera RAW formats
+    arw: { type: 'image', mime: 'image/x-sony-arw' },          // Sony Alpha RAW
+    srf: { type: 'image', mime: 'image/x-sony-srf' },          // Sony RAW (older)
+    sr2: { type: 'image', mime: 'image/x-sony-sr2' },          // Sony RAW (older)
+    cr2: { type: 'image', mime: 'image/x-canon-cr2' },         // Canon RAW 2
+    cr3: { type: 'image', mime: 'image/x-canon-cr3' },         // Canon RAW 3
+    nef: { type: 'image', mime: 'image/x-nikon-nef' },         // Nikon RAW
+    nrw: { type: 'image', mime: 'image/x-nikon-nrw' },         // Nikon RAW (compact)
+    dng: { type: 'image', mime: 'image/x-adobe-dng' },         // Adobe Digital Negative
+    raf: { type: 'image', mime: 'image/x-fuji-raf' },          // Fujifilm RAW
+    orf: { type: 'image', mime: 'image/x-olympus-orf' },       // Olympus RAW
+    rw2: { type: 'image', mime: 'image/x-panasonic-rw2' },     // Panasonic RAW
+    rwl: { type: 'image', mime: 'image/x-leica-rwl' },         // Leica RAW
+    pef: { type: 'image', mime: 'image/x-pentax-pef' },        // Pentax RAW
+    x3f: { type: 'image', mime: 'image/x-sigma-x3f' },         // Sigma RAW
 
     // Audio
     mp3: { type: 'audio', mime: 'audio/mpeg' },
@@ -359,6 +386,8 @@ export const EXTENSION_MAP: Record<string, { type: 'video' | 'image' | 'audio' |
     m4a: { type: 'audio', mime: 'audio/mp4' },
     aac: { type: 'audio', mime: 'audio/aac' },
     wma: { type: 'audio', mime: 'audio/x-ms-wma' },
+    aiff: { type: 'audio', mime: 'audio/aiff' },               // Apple AIFF
+    aif: { type: 'audio', mime: 'audio/aiff' },
 
     // Documents
     pdf: { type: 'document', mime: 'application/pdf' },

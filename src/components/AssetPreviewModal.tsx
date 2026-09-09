@@ -227,9 +227,9 @@ export function AssetPreviewModal({
         || currentAsset?.versions?.[0];
 
     // Distinguish between image thumbnails/waveforms and playable audio/video streams
-    const isVideoFile = (uri?: string | null) => Boolean(uri && /\.(mp4|webm|m4v|mov|mkv|avi|mxf)$/i.test(uri));
-    const isImageFile = (uri?: string | null) => Boolean(uri && /\.(jpg|jpeg|png|webp|gif|svg|bmp)$/i.test(uri));
-    const isAudioFile = (uri?: string | null) => Boolean(uri && /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(uri));
+    const isVideoFile = (uri?: string | null) => Boolean(uri && /\.(mp4|webm|m4v|mov|mkv|avi|mxf|mts|m2ts|r3d|braw|dv|vob|wmv|flv|ts)$/i.test(uri));
+    const isImageFile = (uri?: string | null) => Boolean(uri && /\.(jpg|jpeg|png|webp|gif|svg|bmp|tif|tiff|arw|cr2|cr3|nef|dng|raf|orf|rw2|pef|nrw|x3f|srf|sr2|heic|heif|avif)$/i.test(uri));
+    const isAudioFile = (uri?: string | null) => Boolean(uri && /\.(mp3|wav|ogg|m4a|aac|flac|aiff|aif|wma)$/i.test(uri));
 
     // Video: if proxy is an actual video proxy, use it; otherwise stream original media directly from nextcloudUri
     const videoSource = isVideoFile(currentVersionObj?.proxyUri)

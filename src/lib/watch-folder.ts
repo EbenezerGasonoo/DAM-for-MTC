@@ -270,7 +270,7 @@ export async function scanAndIngestWatchFolder(userId?: string): Promise<IngestR
                 } else if (file.type === 'image') {
                     if (fileBuffer) {
                         metadata = (await extractImageMetadata(fileBuffer)) || {};
-                        const thumbBuffer = await generateImageThumbnail(fileBuffer);
+                        const thumbBuffer = await generateImageThumbnail(fileBuffer, file.mimeType);
                         if (thumbBuffer) {
                             const thumbPath = `/mtc-dam-proxies/${Date.now()}_thumb_${file.basename}.webp`;
                             await uploadAsset(thumbPath, thumbBuffer);

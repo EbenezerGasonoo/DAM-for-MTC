@@ -91,14 +91,83 @@ export async function extractImageMetadata(buffer: Buffer) {
     }
 }
 
-export async function generateImageThumbnail(buffer: Buffer) {
+export async function generateImageThumbnail(buffer: Buffer, mimeType?: string): Promise<Buffer | null> {
+    // First try sharp — works for JPEG, PNG, WEBP, TIFF, HEIC (with libheif), AVIF, etc.
     try {
-        return await sharp(buffer)
+        const result = await sharp(buffer)
             .resize({ width: 600, withoutEnlargement: true })
             .webp({ quality: 80 })
             .toBuffer();
-    } catch (error) {
-        console.warn('Thumbnail generation failed (non-blocking):', error);
+        if (result && result.length > 0) return result;
+    } catch {
+        // Sharp failed — likely a proprietary RAW format (ARW, CR2, NEF, DNG, RAF, ORF, etc.)
+    }
+
+    // Fallback: use ffmpeg to extract a preview frame from the RAW image
+    // ffmpeg can decode many RAW formats via libraw / dcraw integration
+    const timestamp = Date.now();
+    const ext = mimeType ? (mimeType.split('/')[1]?.split('-').pop() || 'raw') : 'raw';
+    const tempInputPath = path.join(os.tmpdir(), `raw_in_${timestamp}.${ext}`);
+    const tempOutputPath = path.join(os.tmpdir(), `raw_thumb_${timestamp}.jpg`);
+
+    try {
+        await fs.promises.writeFile(tempInputPath, buffer);
+
+        const thumbBuffer = await new Promise<Buffer | null>((resolve) => {
+            const timer = setTimeout(() => {
+                try {
+                    if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
+                    if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+                } catch {}
+                resolve(null);
+            }, 10000);
+
+            try {
+                ffmpeg(tempInputPath)
+                    .frames(1)
+                    .size('640x?')
+                    .output(tempOutputPath)
+                    .on('end', async () => {
+                        clearTimeout(timer);
+                        try {
+                            const buf = await fs.promises.readFile(tempOutputPath);
+                            try {
+                                if (fs.existsSync(tempInputPath)) await fs.promises.unlink(tempInputPath);
+                                if (fs.existsSync(tempOutputPath)) await fs.promises.unlink(tempOutputPath);
+                            } catch {}
+                            // Re-encode as webp via sharp for consistency
+                            try {
+                                const webpBuf = await sharp(buf).resize({ width: 600, withoutEnlargement: true }).webp({ quality: 80 }).toBuffer();
+                                resolve(webpBuf);
+                            } catch {
+                                resolve(buf); // Return raw jpeg if webp conversion fails
+                            }
+                        } catch {
+                            resolve(null);
+                        }
+                    })
+                    .on('error', (err) => {
+                        clearTimeout(timer);
+                        console.warn('[Media Processor] RAW image thumbnail via ffmpeg failed (non-blocking):', err?.message);
+                        try {
+                            if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath);
+                            if (fs.existsSync(tempOutputPath)) fs.unlinkSync(tempOutputPath);
+                        } catch {}
+                        resolve(null);
+                    })
+                    .run();
+            } catch (e) {
+                clearTimeout(timer);
+                console.warn('[Media Processor] ffmpeg spawn error for RAW image (non-blocking):', e);
+                try { if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath); } catch {}
+                resolve(null);
+            }
+        });
+
+        return thumbBuffer;
+    } catch (err) {
+        console.warn('[Media Processor] RAW image thumbnail write failed (non-blocking):', err);
+        try { if (fs.existsSync(tempInputPath)) fs.unlinkSync(tempInputPath); } catch {}
         return null;
     }
 }
