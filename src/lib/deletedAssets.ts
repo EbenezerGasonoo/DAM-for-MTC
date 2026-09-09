@@ -69,3 +69,39 @@ export async function isUriDeleted(uri: string): Promise<boolean> {
     const deletedSet = await getDeletedUris();
     return deletedSet.has(String(uri).trim().toLowerCase());
 }
+
+/**
+ * Removes URIs from the blocklist when a user deliberately re-imports them.
+ */
+export async function removeDeletedUris(uris: string[]): Promise<void> {
+    if (!uris || uris.length === 0) return;
+
+    try {
+        const currentSet = await getDeletedUris();
+        let removed = 0;
+
+        for (const uri of uris) {
+            if (!uri) continue;
+            const norm = String(uri).trim().toLowerCase();
+            if (currentSet.has(norm)) {
+                currentSet.delete(norm);
+                removed++;
+            }
+        }
+
+        if (removed > 0) {
+            const arrayToStore = Array.from(currentSet);
+            await prisma.systemSetting.upsert({
+                where: { key: SETTING_KEY },
+                update: { value: JSON.stringify(arrayToStore) },
+                create: {
+                    key: SETTING_KEY,
+                    value: JSON.stringify(arrayToStore),
+                },
+            });
+        }
+    } catch (err) {
+        console.error('Failed to remove URIs from blocklist:', err);
+    }
+}
+

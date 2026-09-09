@@ -6,6 +6,8 @@ import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import UploadModal from '@/components/UploadModal';
 import { AssetPreviewModal, AssetDetail } from '@/components/AssetPreviewModal';
+import { NextcloudFolderImporterModal } from '@/components/NextcloudFolderImporterModal';
+import { ViewAssetsDestinationModal } from '@/components/ViewAssetsDestinationModal';
 import { MtcLogoIcon } from '@/components/MtcLogo';
 
 interface DashboardStats {
@@ -23,6 +25,7 @@ interface DashboardData {
     typeSizes: Record<string, number>;
     nextcloud: {
       connected: boolean;
+      serverUrl?: string;
       used?: number;
       available?: number | string;
       error?: string;
@@ -103,6 +106,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
+  const [showNextcloudImporter, setShowNextcloudImporter] = useState(false);
+  const [showDestinationModal, setShowDestinationModal] = useState(false);
 
   const fetchDashboardData = async () => {
     try {
@@ -171,6 +176,15 @@ export default function DashboardPage() {
         subtitle="Mountain Top Communications Production Pipeline"
         actions={
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowNextcloudImporter(true)}
+              style={{ fontSize: '0.82rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+              title="Browse Nextcloud folders and selectively import videos into DAM"
+            >
+              <span>📂</span>
+              <span>Import from Nextcloud</span>
+            </button>
             <button
               className="btn btn-secondary"
               onClick={handleQuickSync}
@@ -260,29 +274,60 @@ export default function DashboardPage() {
 
         {/* Stat Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '32px' }}>
-          {statCards.map((stat) => (
-            <div className="card" key={stat.label} style={{ padding: '20px', backgroundColor: 'var(--panel-bg)' }}>
-              <div style={{
-                fontSize: '0.75rem',
-                fontFamily: 'var(--font-brand)',
-                color: 'var(--text-muted)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-                fontWeight: 600,
-                marginBottom: '12px',
-              }}>
-                {stat.label}
+          {statCards.map((stat) => {
+            const isTotalAssets = stat.label === 'Total Assets';
+            return (
+              <div
+                className="card"
+                key={stat.label}
+                onClick={isTotalAssets ? () => setShowDestinationModal(true) : undefined}
+                style={{
+                  padding: '20px',
+                  backgroundColor: 'var(--panel-bg)',
+                  cursor: isTotalAssets ? 'pointer' : 'default',
+                  transition: 'all 0.2s ease',
+                  border: isTotalAssets ? '1px solid rgba(56, 102, 66, 0.4)' : undefined,
+                }}
+                onMouseEnter={isTotalAssets ? (e) => {
+                  e.currentTarget.style.borderColor = 'var(--mtc-hunter-green)';
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                } : undefined}
+                onMouseLeave={isTotalAssets ? (e) => {
+                  e.currentTarget.style.borderColor = 'rgba(56, 102, 66, 0.4)';
+                  e.currentTarget.style.transform = 'none';
+                } : undefined}
+                title={isTotalAssets ? 'Click to choose whether to view in DAM or on Nextcloud' : undefined}
+              >
+                <div style={{
+                  fontSize: '0.75rem',
+                  fontFamily: 'var(--font-brand)',
+                  color: 'var(--text-muted)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.08em',
+                  fontWeight: 600,
+                  marginBottom: '12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                }}>
+                  <span>{stat.label}</span>
+                  {isTotalAssets && (
+                    <span style={{ fontSize: '0.7rem', color: 'var(--mtc-hunter-green)' }}>
+                      View ↗
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                  <span style={{ fontSize: '1.9rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
+                    {loading ? '...' : stat.value}
+                  </span>
+                  <span style={{ fontSize: '0.82rem', color: stat.color, fontWeight: 600, fontFamily: 'var(--font-brand)' }}>
+                    {stat.change}
+                  </span>
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-                <span style={{ fontSize: '1.9rem', fontWeight: 700, fontFamily: 'var(--font-brand)', color: 'var(--mtc-cornsilk)' }}>
-                  {loading ? '...' : stat.value}
-                </span>
-                <span style={{ fontSize: '0.82rem', color: stat.color, fontWeight: 600, fontFamily: 'var(--font-brand)' }}>
-                  {stat.change}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '24px' }}>
@@ -300,9 +345,27 @@ export default function DashboardPage() {
               }}>
                 Recent Studio Assets
               </h3>
-              <Link href="/assets" style={{ fontSize: '0.78rem', color: 'var(--mtc-cornsilk)', textDecoration: 'none', opacity: 0.8 }}>
+              <button
+                onClick={() => setShowDestinationModal(true)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '0.78rem',
+                  color: 'var(--mtc-cornsilk)',
+                  cursor: 'pointer',
+                  opacity: 0.8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: 0,
+                  fontFamily: 'inherit',
+                  transition: 'opacity 0.2s',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.8'}
+              >
                 View All Assets →
-              </Link>
+              </button>
             </div>
 
             {loading ? (
@@ -510,6 +573,22 @@ export default function DashboardPage() {
         onAssetUpdated={() => {
           fetchDashboardData();
         }}
+      />
+
+      <NextcloudFolderImporterModal
+        isOpen={showNextcloudImporter}
+        onClose={() => setShowNextcloudImporter(false)}
+        onImportComplete={() => {
+          fetchDashboardData();
+        }}
+      />
+
+      <ViewAssetsDestinationModal
+        isOpen={showDestinationModal}
+        onClose={() => setShowDestinationModal(false)}
+        onOpenNextcloudViewer={() => setShowNextcloudImporter(true)}
+        nextcloudUrl={storage?.nextcloud?.serverUrl || 'https://nextcloud.mtc-network.space/'}
+        totalAssetsCount={stats.totalAssets}
       />
     </Sidebar>
   );

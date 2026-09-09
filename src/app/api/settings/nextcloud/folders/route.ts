@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAdmin } from '@/lib/admin';
+import { requireAuth } from '@/lib/admin';
+import { prisma } from '@/lib/prisma';
 import {
     createNextcloudClientInstance,
     getNextcloudClient,
@@ -26,6 +27,9 @@ export interface FileItem {
     type: 'video' | 'image' | 'audio' | 'document' | 'other';
     mime: string;
     lastmod: string;
+    isVideo: boolean;
+    isImported: boolean;
+    assetId?: string;
 }
 
 function formatBytes(bytes: number): string {
@@ -57,8 +61,9 @@ function buildBreadcrumbs(cleanPath: string): Array<{ name: string; path: string
 // Scans Nextcloud folder contents (or local fallback) and returns subdirectories and files
 export async function POST(req: NextRequest) {
     try {
-        const auth = await requireAdmin();
+        const auth = await requireAuth();
         if (auth instanceof NextResponse) return auth;
+
 
         const body = await req.json().catch(() => ({}));
         const rawPath = typeof body.path === 'string' ? body.path.trim() : '/';
@@ -114,6 +119,17 @@ export async function POST(req: NextRequest) {
             }
         }
 
+        // Pre-fetch all existing asset URIs to cross-reference with files
+        const existingVersions = await prisma.assetVersion.findMany({
+            select: { nextcloudUri: true, assetId: true },
+        });
+        const importedMap = new Map<string, string>();
+        for (const v of existingVersions) {
+            if (v.nextcloudUri) {
+                importedMap.set(v.nextcloudUri.toLowerCase(), v.assetId);
+            }
+        }
+
         const folders: FolderItem[] = [];
         const files: FileItem[] = [];
 
@@ -143,15 +159,20 @@ export async function POST(req: NextRequest) {
                         const ext = (basename.split('.').pop() || '').toLowerCase();
                         const match = EXTENSION_MAP[ext];
                         const fileSize = Number(item.size || 0);
+                        const isVideo = match?.type === 'video' || /\.(mp4|mov|mxf|avi|mkv|webm|wmv|r3d|braw|mts|m2ts|flv)$/i.test(basename);
+                        const assetId = importedMap.get(itemPath.toLowerCase());
 
                         files.push({
                             name: basename,
                             path: itemPath,
                             size: fileSize,
                             sizeFormatted: formatBytes(fileSize),
-                            type: match ? match.type : 'other',
+                            type: match ? match.type : (isVideo ? 'video' : 'other'),
                             mime: item.mime || (match ? match.mime : 'application/octet-stream'),
                             lastmod: item.lastmod || new Date().toISOString(),
+                            isVideo,
+                            isImported: Boolean(assetId),
+                            assetId: assetId || undefined,
                         });
                     }
                 }
@@ -189,14 +210,20 @@ export async function POST(req: NextRequest) {
                         } else {
                             const ext = (entry.name.split('.').pop() || '').toLowerCase();
                             const match = EXTENSION_MAP[ext];
+                            const isVideo = match?.type === 'video' || /\.(mp4|mov|mxf|avi|mkv|webm|wmv|r3d|braw|mts|m2ts|flv)$/i.test(entry.name);
+                            const assetId = importedMap.get(itemPath.toLowerCase());
+
                             files.push({
                                 name: entry.name,
                                 path: itemPath,
                                 size: stat.size,
                                 sizeFormatted: formatBytes(stat.size),
-                                type: match ? match.type : 'other',
+                                type: match ? match.type : (isVideo ? 'video' : 'other'),
                                 mime: match ? match.mime : 'application/octet-stream',
                                 lastmod: stat.mtime.toISOString(),
+                                isVideo,
+                                isImported: Boolean(assetId),
+                                assetId: assetId || undefined,
                             });
                         }
                     }
@@ -228,7 +255,10 @@ export async function POST(req: NextRequest) {
             files,
             totalFolders: folders.length,
             totalFiles: files.length,
+            totalVideos: files.filter(f => f.isVideo).length,
+            unimportedVideos: files.filter(f => f.isVideo && !f.isImported).length,
         });
+
     } catch (err: any) {
         console.error('Nextcloud folder scan error:', err);
         return NextResponse.json({ error: err?.message || 'Failed to scan Nextcloud folders' }, { status: 500 });

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthFromCookies } from '@/lib/auth';
-import { verifyConnection } from '@/lib/nextcloud';
+import { verifyConnection, getActiveNextcloudConfig } from '@/lib/nextcloud';
+
 
 export async function GET() {
     try {
@@ -66,6 +67,8 @@ export async function GET() {
             }
         }
 
+        const ncConfig = await getActiveNextcloudConfig();
+
         return NextResponse.json({
             stats: {
                 totalAssets,
@@ -79,10 +82,12 @@ export async function GET() {
                 typeSizes,
                 nextcloud: ncConnection.success ? {
                     connected: true,
+                    serverUrl: ncConfig.url,
                     used: ncConnection.quota?.used ?? totalBytes,
                     available: ncConnection.quota?.available ?? 0,
                 } : {
                     connected: false,
+                    serverUrl: ncConfig.url,
                     error: ncConnection.error || 'Nextcloud not connected'
                 }
             },

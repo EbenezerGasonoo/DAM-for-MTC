@@ -5,6 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import Header from '@/components/Header';
 import { SearchFilter, SearchFilters } from '@/components/SearchFilter';
 import { AssetPreviewModal } from '@/components/AssetPreviewModal';
+import { NextcloudFolderImporterModal } from '@/components/NextcloudFolderImporterModal';
 import { ActivityLog } from '@/components/ActivityLog';
 import { useAuth } from '@/lib/auth-context';
 import FavoriteButton from '@/components/FavoriteButton';
@@ -71,9 +72,10 @@ export default function AssetsPage() {
     const [bulkTagInput, setBulkTagInput] = useState('');
     const [showTagModal, setShowTagModal] = useState(false);
 
-    // Nextcloud quick sync state
+    // Nextcloud quick sync & folder importer state
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncToast, setSyncToast] = useState<string | null>(null);
+    const [showNextcloudImporter, setShowNextcloudImporter] = useState(false);
 
     const handleSyncNextcloud = async () => {
         setIsSyncing(true);
@@ -298,6 +300,15 @@ export default function AssetsPage() {
                 subtitle={`${assets.length} production assets found`}
                 actions={
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <button
+                            className="btn btn-primary"
+                            onClick={() => setShowNextcloudImporter(true)}
+                            style={{ fontSize: '0.82rem', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            title="Browse Nextcloud folders and selectively import videos into DAM"
+                        >
+                            <span>📂</span>
+                            <span>Import from Nextcloud</span>
+                        </button>
                         <button
                             className="btn btn-secondary"
                             onClick={handleSyncNextcloud}
@@ -871,6 +882,16 @@ export default function AssetsPage() {
                     onClose={() => setShowPreviewModal(false)}
                     asset={selectedAsset}
                     onAssetUpdated={handleAssetUpdated}
+                />
+
+                {/* Nextcloud Folder Viewer & Video Importer Modal */}
+                <NextcloudFolderImporterModal
+                    isOpen={showNextcloudImporter}
+                    onClose={() => setShowNextcloudImporter(false)}
+                    onImportComplete={(count) => {
+                        setSyncToast(`Successfully imported ${count} new video(s) into your library!`);
+                        fetchAssets();
+                    }}
                 />
             </div>
         </Sidebar>
