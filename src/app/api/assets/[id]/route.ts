@@ -75,13 +75,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         }
 
         const body = await req.json();
-        const { title, description, status, metadata, tags } = body;
+        const { title, description, status, metadata, tags, projectId } = body;
 
         const data: Record<string, unknown> = {};
         if (title !== undefined) data.title = title;
         if (description !== undefined) data.description = description;
         if (status !== undefined) data.status = status;
         if (metadata !== undefined) data.metadata = metadata;
+        if (projectId !== undefined) data.projectId = projectId;
 
         if (tags && Array.isArray(tags)) {
             data.tags = {

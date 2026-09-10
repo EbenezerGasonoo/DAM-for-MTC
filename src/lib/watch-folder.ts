@@ -32,6 +32,7 @@ export interface WatchFolderConfig {
     defaultProjectId: string | null;
     actionAfterIngest: 'keep' | 'move_archive';
     archiveFolder: string;
+    approvedFolder: string;
     autoTranscode: boolean;
     status: 'IDLE' | 'SCANNING' | 'ERROR';
     lastScanTime: string | null;
@@ -48,6 +49,7 @@ export const DEFAULT_WATCH_CONFIG: WatchFolderConfig = {
     defaultProjectId: null,
     actionAfterIngest: 'keep',
     archiveFolder: '/Footage_Ingest/Archive',
+    approvedFolder: '',
     autoTranscode: true,
     status: 'IDLE',
     lastScanTime: null,
@@ -69,6 +71,7 @@ export async function getWatchFolderConfig(): Promise<WatchFolderConfig> {
                         'WATCH_FOLDER_PROJECT_ID',
                         'WATCH_FOLDER_ACTION',
                         'WATCH_FOLDER_ARCHIVE_PATH',
+                        'WATCH_FOLDER_APPROVED_PATH',
                         'WATCH_FOLDER_AUTO_TRANSCODE',
                         'WATCH_FOLDER_STATUS',
                         'WATCH_FOLDER_LAST_SCAN',
@@ -95,6 +98,7 @@ export async function getWatchFolderConfig(): Promise<WatchFolderConfig> {
             defaultProjectId: map.get('WATCH_FOLDER_PROJECT_ID') || null,
             actionAfterIngest: (map.get('WATCH_FOLDER_ACTION') as 'keep' | 'move_archive') || DEFAULT_WATCH_CONFIG.actionAfterIngest,
             archiveFolder: map.get('WATCH_FOLDER_ARCHIVE_PATH') || DEFAULT_WATCH_CONFIG.archiveFolder,
+            approvedFolder: map.get('WATCH_FOLDER_APPROVED_PATH') || DEFAULT_WATCH_CONFIG.approvedFolder,
             autoTranscode: map.has('WATCH_FOLDER_AUTO_TRANSCODE') ? map.get('WATCH_FOLDER_AUTO_TRANSCODE') === 'true' : DEFAULT_WATCH_CONFIG.autoTranscode,
             status: (map.get('WATCH_FOLDER_STATUS') as 'IDLE' | 'SCANNING' | 'ERROR') || DEFAULT_WATCH_CONFIG.status,
             lastScanTime: map.get('WATCH_FOLDER_LAST_SCAN') || null,
@@ -117,6 +121,7 @@ export async function saveWatchFolderConfig(updates: Partial<WatchFolderConfig>)
     if (updates.defaultProjectId !== undefined) pairs.push({ key: 'WATCH_FOLDER_PROJECT_ID', value: updates.defaultProjectId || '' });
     if (updates.actionAfterIngest !== undefined) pairs.push({ key: 'WATCH_FOLDER_ACTION', value: updates.actionAfterIngest });
     if (updates.archiveFolder !== undefined) pairs.push({ key: 'WATCH_FOLDER_ARCHIVE_PATH', value: updates.archiveFolder.trim() });
+    if (updates.approvedFolder !== undefined) pairs.push({ key: 'WATCH_FOLDER_APPROVED_PATH', value: updates.approvedFolder.trim() });
     if (updates.autoTranscode !== undefined) pairs.push({ key: 'WATCH_FOLDER_AUTO_TRANSCODE', value: String(updates.autoTranscode) });
     if (updates.status !== undefined) pairs.push({ key: 'WATCH_FOLDER_STATUS', value: updates.status });
     if (updates.lastScanTime !== undefined) pairs.push({ key: 'WATCH_FOLDER_LAST_SCAN', value: updates.lastScanTime || '' });
@@ -306,6 +311,14 @@ export async function scanAndIngestWatchFolder(userId?: string): Promise<IngestR
                 // Prepare tags
                 const tagNames = Array.from(new Set([...config.autoTags, 'Auto-Ingest']));
 
+                // Status determination: Only files inside the designated approved folder are marked APPROVED
+                const isApprovedFolderConfigured = Boolean(config.approvedFolder && config.approvedFolder.trim().length > 0);
+                const isInsideApprovedFolder = isApprovedFolderConfigured && (
+                    file.filename.toLowerCase().startsWith(config.approvedFolder.toLowerCase().trim().replace(/\/+$/, '')) ||
+                    finalStorageUri.toLowerCase().startsWith(config.approvedFolder.toLowerCase().trim().replace(/\/+$/, ''))
+                );
+                const initialAssetStatus = isInsideApprovedFolder ? 'APPROVED' : 'DRAFT';
+
                 // Create Asset in Prisma Database
                 const newAsset = await prisma.asset.create({
                     data: {
@@ -316,7 +329,7 @@ export async function scanAndIngestWatchFolder(userId?: string): Promise<IngestR
                         size: file.size,
                         creatorId: actingUserId,
                         projectId: config.defaultProjectId || undefined,
-                        status: 'APPROVED',
+                        status: initialAssetStatus,
                         metadata: JSON.stringify(metadata),
                         tags: {
                             connectOrCreate: tagNames.map(name => ({

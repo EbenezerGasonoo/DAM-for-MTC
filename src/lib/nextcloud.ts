@@ -134,6 +134,35 @@ async function ensureRemoteDir(client: WebDAVClient, fullPath: string) {
     }
 }
 
+// Create folder on Nextcloud and ensure local directory exists
+export async function createNextcloudFolder(folderPath: string): Promise<{ success: boolean; path: string; error?: string }> {
+    const cleanPath = '/' + folderPath.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+    try {
+        const { client } = await getNextcloudClient();
+        if (client) {
+            const exists = await client.exists(cleanPath);
+            if (!exists) {
+                await client.createDirectory(cleanPath, { recursive: true });
+            }
+        }
+        // Also ensure local fallback storage directory exists
+        const localTarget = getLocalPath(cleanPath);
+        await fs.promises.mkdir(localTarget, { recursive: true });
+        return { success: true, path: cleanPath };
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error creating directory';
+        console.error('Error in createNextcloudFolder:', message);
+        // Still attempt to create local fallback folder
+        try {
+            const localTarget = getLocalPath(cleanPath);
+            await fs.promises.mkdir(localTarget, { recursive: true });
+            return { success: true, path: cleanPath };
+        } catch {
+            return { success: false, path: cleanPath, error: message };
+        }
+    }
+}
+
 // Verify connection with specified or active credentials
 export async function verifyConnection(customConfig?: { url: string; username: string; password: string }) {
     try {

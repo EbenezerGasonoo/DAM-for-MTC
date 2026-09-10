@@ -27,6 +27,12 @@ export async function POST(req: NextRequest) {
         const existingUris = new Set(existingVersions.map(v => v.nextcloudUri));
         const deletedUris = await getDeletedUris();
 
+        // Check if an approved folder is configured in settings
+        const approvedSetting = await prisma.systemSetting.findUnique({
+            where: { key: 'WATCH_FOLDER_APPROVED_PATH' },
+        });
+        const approvedFolder = (approvedSetting?.value || '').trim();
+
         let newImported = 0;
         let existingSkipped = 0;
         const importedTitles: string[] = [];
@@ -39,6 +45,11 @@ export async function POST(req: NextRequest) {
                 continue;
             }
 
+            // Only mark as APPROVED if file resides in the designated approved folder
+            const isInsideApproved = Boolean(
+                approvedFolder && fileNorm.startsWith(approvedFolder.toLowerCase().replace(/\/+$/, ''))
+            );
+            const status = isInsideApproved ? 'APPROVED' : 'DRAFT';
 
             try {
                 await prisma.asset.create({
@@ -49,7 +60,7 @@ export async function POST(req: NextRequest) {
                         mimeType: file.mimeType,
                         size: file.size,
                         creatorId: auth.userId,
-                        status: 'APPROVED',
+                        status,
                         versions: {
                             create: [
                                 {

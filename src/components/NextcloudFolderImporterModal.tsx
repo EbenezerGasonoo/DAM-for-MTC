@@ -70,6 +70,7 @@ export function NextcloudFolderImporterModal({
     // Projects list
     const [projects, setProjects] = useState<ProjectOption[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+    const [importStatus, setImportStatus] = useState<'DRAFT' | 'APPROVED'>('DRAFT');
 
     // Fetch projects for target selection
     useEffect(() => {
@@ -195,6 +196,7 @@ export function NextcloudFolderImporterModal({
                 body: JSON.stringify({
                     filePaths: filePathsToImport,
                     projectId: selectedProjectId || undefined,
+                    status: importStatus,
                     videoOnly: true,
                 }),
             });
@@ -852,6 +854,29 @@ export function NextcloudFolderImporterModal({
                                 {projects.map(p => (
                                     <option key={p.id} value={p.id}>{p.name}</option>
                                 ))}
+                            </select>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <label style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                                Initial Stage:
+                            </label>
+                            <select
+                                value={importStatus}
+                                onChange={(e) => setImportStatus(e.target.value as 'DRAFT' | 'APPROVED')}
+                                disabled={isImporting}
+                                style={{
+                                    backgroundColor: 'var(--bg-color)',
+                                    border: '1px solid var(--border-color)',
+                                    borderRadius: '6px',
+                                    color: 'var(--mtc-cornsilk)',
+                                    padding: '5px 10px',
+                                    fontSize: '0.78rem',
+                                    outline: 'none',
+                                }}
+                            >
+                                <option value="DRAFT">DRAFT / Ingest (Recommended)</option>
+                                <option value="APPROVED">APPROVED Masters</option>
                             </select>
                         </div>
 

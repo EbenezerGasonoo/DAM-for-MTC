@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthFromCookies } from '@/lib/auth';
 import { logActivity } from '@/lib/activity';
+import { createNextcloudFolder } from '@/lib/nextcloud';
 
 // GET /api/projects — List all projects
 export async function GET() {
@@ -50,6 +51,16 @@ export async function POST(req: NextRequest) {
             },
         });
 
+        // Automatically create a folder with the name of the project on Nextcloud
+        let cloudFolderCreated = false;
+        try {
+            const safeFolderName = name.trim().replace(/[\\/:*?"<>|]/g, '_');
+            const res = await createNextcloudFolder(safeFolderName);
+            cloudFolderCreated = res.success;
+        } catch (ncErr) {
+            console.error('Failed to auto-create Nextcloud folder for project:', ncErr);
+        }
+
         // Audit log
         if (ownerId) {
             await logActivity(
@@ -57,7 +68,7 @@ export async function POST(req: NextRequest) {
                 'CREATE',
                 'PROJECT',
                 project.id,
-                { name: project.name, status: project.status },
+                { name: project.name, status: project.status, cloudFolderCreated },
                 req
             );
         }

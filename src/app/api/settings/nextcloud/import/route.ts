@@ -34,6 +34,13 @@ export async function POST(req: NextRequest) {
         const recursive: boolean = Boolean(body.recursive);
         const videoOnly: boolean = body.videoOnly !== false; // Default true
         const projectId: string | null = typeof body.projectId === 'string' && body.projectId ? body.projectId : null;
+        const requestedStatus: string | null = typeof body.status === 'string' && body.status ? body.status : null;
+
+        // Check if an approved folder is configured
+        const approvedSetting = await prisma.systemSetting.findUnique({
+            where: { key: 'WATCH_FOLDER_APPROVED_PATH' },
+        });
+        const approvedFolder = (approvedSetting?.value || '').trim();
 
         if (filePaths.length === 0 && !folderPath) {
             return NextResponse.json({
@@ -169,6 +176,11 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
+                const isItemInApproved = Boolean(
+                    approvedFolder && item.filePath.toLowerCase().startsWith(approvedFolder.toLowerCase().replace(/\/+$/, ''))
+                );
+                const itemStatus = requestedStatus || (isItemInApproved ? 'APPROVED' : 'DRAFT');
+
                 const newAsset = await prisma.asset.create({
                     data: {
                         title: item.cleanTitle,
@@ -178,7 +190,7 @@ export async function POST(req: NextRequest) {
                         size: finalSize,
                         creatorId: auth.userId,
                         projectId: projectId || undefined,
-                        status: 'APPROVED',
+                        status: itemStatus,
                         metadata: videoMeta ? JSON.stringify(videoMeta) : undefined,
                         versions: {
                             create: [

@@ -22,8 +22,8 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Status is required' }, { status: 400 });
         }
 
-        if (!['DRAFT', 'REVIEW', 'APPROVED'].includes(status)) {
-            return NextResponse.json({ error: 'Status must be DRAFT, REVIEW, or APPROVED' }, { status: 400 });
+        if (!['DRAFT', 'REVIEW', 'APPROVED', 'PUBLISHED', 'ARCHIVED', 'CLOSED'].includes(status)) {
+            return NextResponse.json({ error: 'Status must be DRAFT, REVIEW, APPROVED, PUBLISHED, ARCHIVED, or CLOSED' }, { status: 400 });
         }
 
         const results = await prisma.asset.updateMany({

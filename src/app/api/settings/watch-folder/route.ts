@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
         if (body.defaultProjectId !== undefined) updates.defaultProjectId = body.defaultProjectId || null;
         if (body.actionAfterIngest === 'keep' || body.actionAfterIngest === 'move_archive') updates.actionAfterIngest = body.actionAfterIngest;
         if (typeof body.archiveFolder === 'string') updates.archiveFolder = body.archiveFolder;
+        if (typeof body.approvedFolder === 'string') updates.approvedFolder = body.approvedFolder;
         if (typeof body.autoTranscode === 'boolean') updates.autoTranscode = body.autoTranscode;
 
         const updated = await saveWatchFolderConfig(updates);

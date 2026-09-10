@@ -66,6 +66,8 @@ const statusBadgeColors: Record<string, { bg: string; text: string; border: stri
     REVIEW: { bg: 'rgba(230, 167, 76, 0.25)', text: '#FFD180', border: 'rgba(230, 167, 76, 0.5)' },
     APPROVED: { bg: 'rgba(56, 102, 66, 0.35)', text: '#A7F3D0', border: 'rgba(56, 102, 66, 0.6)' },
     PUBLISHED: { bg: 'rgba(56, 102, 66, 0.25)', text: '#FFEBCC', border: 'rgba(255, 235, 204, 0.4)' },
+    ARCHIVED: { bg: 'rgba(202, 222, 223, 0.08)', text: '#94A3B8', border: 'rgba(148, 163, 184, 0.3)' },
+    CLOSED: { bg: 'rgba(202, 222, 223, 0.08)', text: '#94A3B8', border: 'rgba(148, 163, 184, 0.3)' },
 };
 
 export function AssetPreviewModal({
@@ -449,8 +451,36 @@ export function AssetPreviewModal({
                                 <option value="REVIEW">REVIEW</option>
                                 <option value="APPROVED">APPROVED</option>
                                 <option value="PUBLISHED">PUBLISHED</option>
+                                <option value="ARCHIVED">CLOSED / ARCHIVED</option>
                             </select>
                         </div>
+
+                        {/* Close or Reopen Workflow Button */}
+                        {currentAsset.status !== 'ARCHIVED' && currentAsset.status !== 'CLOSED' ? (
+                            <button
+                                onClick={() => {
+                                    if (confirm('Close this asset and remove it from the active workflow pipeline?')) {
+                                        handleStatusChange('ARCHIVED');
+                                    }
+                                }}
+                                disabled={isSavingStatus}
+                                className="btn btn-secondary"
+                                style={{ padding: '7px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#CADEDF' }}
+                                title="Close and remove from active workflow"
+                            >
+                                ✕ Close Workflow
+                            </button>
+                        ) : (
+                            <button
+                                onClick={() => handleStatusChange('DRAFT')}
+                                disabled={isSavingStatus}
+                                className="btn btn-secondary"
+                                style={{ padding: '7px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '6px', color: '#A7F3D0' }}
+                                title="Restore asset to Draft workflow stage"
+                            >
+                                ↺ Reopen to Draft
+                            </button>
+                        )}
 
                         {/* Secure Share Button */}
                         <button

@@ -190,6 +190,9 @@ export default function SettingsPage() {
     const [wfDefaultProjectId, setWfDefaultProjectId] = useState('');
     const [wfActionAfterIngest, setWfActionAfterIngest] = useState<'keep' | 'move_archive'>('keep');
     const [wfArchiveFolder, setWfArchiveFolder] = useState('/Footage_Ingest/Archive');
+    const [wfApprovedFolder, setWfApprovedFolder] = useState('');
+    const [wfResettingStatus, setWfResettingStatus] = useState(false);
+    const [wfResetMessage, setWfResetMessage] = useState<string | null>(null);
     const [wfAutoTranscode, setWfAutoTranscode] = useState(true);
     const [wfStatus, setWfStatus] = useState<'IDLE' | 'SCANNING' | 'ERROR'>('IDLE');
     const [wfLastScanTime, setWfLastScanTime] = useState<string | null>(null);
@@ -738,6 +741,7 @@ export default function SettingsPage() {
                     setWfDefaultProjectId(data.config.defaultProjectId || '');
                     setWfActionAfterIngest(data.config.actionAfterIngest || 'keep');
                     setWfArchiveFolder(data.config.archiveFolder || '/Footage_Ingest/Archive');
+                    setWfApprovedFolder(data.config.approvedFolder || '');
                     setWfAutoTranscode(data.config.autoTranscode !== false);
                     setWfStatus(data.config.status || 'IDLE');
                     setWfLastScanTime(data.config.lastScanTime);
@@ -755,6 +759,32 @@ export default function SettingsPage() {
             console.error('Error fetching watch folder config:', err);
         } finally {
             setWfLoading(false);
+        }
+    };
+
+    const handleResetAutoIngestStatus = async () => {
+        if (!confirm('This will update all auto-ingested NAS assets that are currently marked APPROVED to DRAFT so they do not flood the Approved Masters workflow. Continue?')) {
+            return;
+        }
+        setWfResettingStatus(true);
+        setWfResetMessage(null);
+        try {
+            const res = await fetch('/api/settings/watch-folder/reset-status', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ targetStatus: 'DRAFT' })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setWfResetMessage(`Successfully reset ${data.updatedCount} auto-ingested assets to DRAFT.`);
+            } else {
+                setWfResetMessage(`Error: ${data.error || 'Failed to reset'}`);
+            }
+        } catch {
+            setWfResetMessage('Network error resetting assets.');
+        } finally {
+            setWfResettingStatus(false);
+            setTimeout(() => setWfResetMessage(null), 8000);
         }
     };
 
@@ -776,6 +806,7 @@ export default function SettingsPage() {
                     defaultProjectId: wfDefaultProjectId || null,
                     actionAfterIngest: wfActionAfterIngest,
                     archiveFolder: wfArchiveFolder,
+                    approvedFolder: wfApprovedFolder,
                     autoTranscode: wfAutoTranscode,
                 })
             });
@@ -3846,6 +3877,66 @@ export default function SettingsPage() {
                                                 />
                                             </div>
                                         )}
+
+                                        {/* Approved / Ready Assets Folder */}
+                                        <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid rgba(202, 222, 223, 0.1)' }}>
+                                            <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: 'var(--mtc-cornsilk)', marginBottom: '4px' }}>
+                                                Approved / Ready Assets Folder (Optional)
+                                            </label>
+                                            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '8px', lineHeight: '1.4' }}>
+                                                Designate a specific NAS/Nextcloud folder containing completed masters (e.g. <code>/Approved_Masters</code>). Only files inside this folder will automatically receive <strong>APPROVED</strong> workflow status. All other NAS files will be imported as <strong>DRAFT / Ingest</strong>.
+                                            </p>
+                                            <input
+                                                type="text"
+                                                value={wfApprovedFolder}
+                                                onChange={e => setWfApprovedFolder(e.target.value)}
+                                                disabled={!isAdmin}
+                                                placeholder="/Approved_Masters (Leave blank to keep all new ingested assets as DRAFT)"
+                                                style={{
+                                                    width: '100%',
+                                                    maxWidth: '480px',
+                                                    padding: '8px 12px',
+                                                    borderRadius: '6px',
+                                                    backgroundColor: '#1D2729',
+                                                    border: '1px solid rgba(202, 222, 223, 0.2)',
+                                                    color: 'var(--mtc-cornsilk)',
+                                                    fontSize: '0.84rem',
+                                                    fontFamily: 'monospace',
+                                                }}
+                                            />
+                                        </div>
+
+                                        {/* Utility: Reset Auto-Ingested Assets to Draft */}
+                                        <div style={{ marginTop: '16px', padding: '12px 14px', backgroundColor: 'rgba(230, 167, 76, 0.08)', border: '1px dashed rgba(230, 167, 76, 0.3)', borderRadius: '6px', maxWidth: '560px' }}>
+                                            <div style={{ fontSize: '0.82rem', fontWeight: 600, color: '#FFD180', marginBottom: '4px' }}>
+                                                ⚡ Database Cleanup: Auto-Ingested NAS Assets
+                                            </div>
+                                            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.4' }}>
+                                                If previous scans automatically marked all NAS files as &quot;APPROVED&quot;, use this button to reset auto-ingested assets back to <strong>DRAFT</strong> so they don&apos;t flood the Approved Masters workflow.
+                                            </div>
+                                            <button
+                                                type="button"
+                                                disabled={wfResettingStatus || !isAdmin}
+                                                onClick={handleResetAutoIngestStatus}
+                                                style={{
+                                                    backgroundColor: 'rgba(230, 167, 76, 0.2)',
+                                                    color: '#FFD180',
+                                                    border: '1px solid rgba(230, 167, 76, 0.4)',
+                                                    borderRadius: '4px',
+                                                    padding: '6px 12px',
+                                                    fontSize: '0.78rem',
+                                                    fontWeight: 600,
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                {wfResettingStatus ? 'Resetting...' : '↺ Set Auto-Ingested Assets to DRAFT'}
+                                            </button>
+                                            {wfResetMessage && (
+                                                <div style={{ marginTop: '8px', fontSize: '0.76rem', color: 'var(--mtc-cornsilk)' }}>
+                                                    {wfResetMessage}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {/* Submit Button */}
