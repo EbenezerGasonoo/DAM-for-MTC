@@ -286,18 +286,64 @@ export async function readAssetFile(filePath: string): Promise<Buffer | null> {
     return null;
 }
 
-export async function getAssetStream(filePath: string) {
+export async function getAssetStat(filePath: string): Promise<{ size: number; lastmod?: string } | null> {
     try {
         const { client } = await getNextcloudClient();
         if (client) {
-            return client.createReadStream(filePath);
+            const stat: any = await client.stat(filePath);
+            if (stat) {
+                return {
+                    size: typeof stat.size === 'number' ? stat.size : parseInt(stat.size, 10) || 0,
+                    lastmod: stat.lastmod,
+                };
+            }
         }
     } catch {
         // Fall through to local fallback
     }
 
-    const localPath = getLocalPath(filePath);
-    return fs.createReadStream(localPath);
+    try {
+        const localPath = getLocalPath(filePath);
+        if (fs.existsSync(localPath)) {
+            const stat = await fs.promises.stat(localPath);
+            return {
+                size: stat.size,
+                lastmod: stat.mtime.toUTCString(),
+            };
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+export async function getAssetReadStream(filePath: string, range?: { start: number; end: number }) {
+    try {
+        const { client } = await getNextcloudClient();
+        if (client) {
+            const options: any = {};
+            if (range) {
+                options.headers = { Range: `bytes=${range.start}-${range.end}` };
+            }
+            return client.createReadStream(filePath, options);
+        }
+    } catch {
+        // Fall through to local fallback
+    }
+
+    try {
+        const localPath = getLocalPath(filePath);
+        if (fs.existsSync(localPath)) {
+            return fs.createReadStream(localPath, range ? { start: range.start, end: range.end } : undefined);
+        }
+    } catch {
+        return null;
+    }
+    return null;
+}
+
+export async function getAssetStream(filePath: string) {
+    return getAssetReadStream(filePath);
 }
 
 export async function listDirectory(dirPath: string) {
