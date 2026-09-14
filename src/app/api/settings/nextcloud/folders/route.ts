@@ -17,6 +17,9 @@ export interface FolderItem {
     path: string;
     lastmod: string;
     itemCount?: number;
+    /** True size of the directory in bytes (from WebDAV quota-used-bytes). 0 = unknown/empty. */
+    size: number;
+    sizeFormatted: string;
 }
 
 export interface FileItem {
@@ -135,10 +138,10 @@ export async function POST(req: NextRequest) {
 
         if (client) {
             try {
-                const items = await client.getDirectoryContents(targetPath);
-                const itemsList = Array.isArray(items) ? items : (items as any)?.data || [];
+                const rawResult = await client.getDirectoryContents(targetPath, { details: true });
+                const items = Array.isArray(rawResult) ? rawResult : ((rawResult as any)?.data ?? []);
 
-                for (const item of itemsList) {
+                for (const item of items) {
                     const basename = item.basename || path.posix.basename(item.filename);
 
                     // Skip hidden system files
@@ -150,10 +153,14 @@ export async function POST(req: NextRequest) {
                     const itemPath = ('/' + item.filename.replace(/^\/+/g, '')).replace(/\/+/g, '/');
 
                     if (item.type === 'directory') {
+                        // Read true folder size from WebDAV quota-used-bytes property
+                        const dirSize = Number(item.props?.['quota-used-bytes'] ?? item.size ?? 0) || 0;
                         folders.push({
                             name: basename,
                             path: itemPath,
                             lastmod: item.lastmod || new Date().toISOString(),
+                            size: dirSize,
+                            sizeFormatted: dirSize > 0 ? formatBytes(dirSize) : '',
                         });
                     } else {
                         const ext = (basename.split('.').pop() || '').toLowerCase();
@@ -206,6 +213,8 @@ export async function POST(req: NextRequest) {
                                 name: entry.name,
                                 path: itemPath,
                                 lastmod: stat.mtime.toISOString(),
+                                size: 0,
+                                sizeFormatted: '',
                             });
                         } else {
                             const ext = (entry.name.split('.').pop() || '').toLowerCase();

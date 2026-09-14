@@ -18,6 +18,8 @@ interface FolderItem {
     name: string;
     path: string;
     lastmod: string;
+    size: number;
+    sizeFormatted: string;
 }
 
 interface FileItem {
@@ -618,6 +620,11 @@ export function NextcloudFolderImporterModal({
                                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
                                             {f.name}
                                         </span>
+                                        {f.sizeFormatted ? (
+                                            <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', flexShrink: 0, opacity: 0.8 }}>
+                                                {f.sizeFormatted}
+                                            </span>
+                                        ) : null}
                                         <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>›</span>
                                     </button>
                                 ))}

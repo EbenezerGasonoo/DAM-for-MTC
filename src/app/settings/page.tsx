@@ -121,7 +121,7 @@ export default function SettingsPage() {
     const [ncPassword, setNcPassword] = useState('');
     const [ncRootFolder, setNcRootFolder] = useState('/mtc-dam-uploads');
     const [ncStatus, setNcStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CHECKING'>('CHECKING');
-    const [ncQuota, setNcQuota] = useState<{ used: number; available: number } | null>(null);
+    const [ncQuota, setNcQuota] = useState<{ used: number; available: number | string } | null>(null);
     const [ncWebdavUrl, setNcWebdavUrl] = useState('');
     const [ncHasPassword, setNcHasPassword] = useState(false);
     const [ncTesting, setNcTesting] = useState(false);
@@ -145,7 +145,7 @@ export default function SettingsPage() {
         currentPath: string;
         parentPath: string | null;
         breadcrumbs: Array<{ name: string; path: string }>;
-        folders: Array<{ name: string; path: string; lastmod: string }>;
+        folders: Array<{ name: string; path: string; lastmod: string; size: number; sizeFormatted: string }>;
         files: Array<{
             name: string;
             path: string;
@@ -2503,20 +2503,37 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
-                            {/* Storage Quota Gauge (if available) */}
-                            {ncQuota && ncQuota.available > 0 && (
+                            {/* Storage Quota Gauge (always shown when quota is available) */}
+                            {ncQuota && ncQuota.used !== undefined && (
                                 <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '8px' }}>
-                                        <span style={{ color: 'var(--text-muted)' }}>Nextcloud Storage Quota</span>
+                                        <span style={{ color: 'var(--text-muted)' }}>Nextcloud Storage Usage</span>
                                         <span style={{ color: 'var(--mtc-cornsilk)', fontWeight: 600 }}>
-                                            {(ncQuota.used / (1024 * 1024 * 1024)).toFixed(2)} GB used of {((ncQuota.used + ncQuota.available) / (1024 * 1024 * 1024)).toFixed(2)} GB
+                                            {(() => {
+                                                const usedGB = (ncQuota.used / (1024 * 1024 * 1024)).toFixed(2);
+                                                if (ncQuota.available === 'unlimited' || ncQuota.available === -3 || Number(ncQuota.available) < 0) {
+                                                    return `${usedGB} GB used (Unlimited Pool)`;
+                                                }
+                                                const totalBytes = ncQuota.used + Number(ncQuota.available);
+                                                const totalGB = (totalBytes / (1024 * 1024 * 1024)).toFixed(2);
+                                                return `${usedGB} GB used of ${totalGB} GB`;
+                                            })()}
                                         </span>
                                     </div>
                                     <div style={{ height: '8px', backgroundColor: 'rgba(20, 28, 30, 0.8)', borderRadius: '4px', overflow: 'hidden' }}>
                                         <div style={{
-                                            width: `${Math.min(100, (ncQuota.used / (ncQuota.used + ncQuota.available)) * 100)}%`,
+                                            width: (() => {
+                                                if (ncQuota.available === 'unlimited' || ncQuota.available === -3 || Number(ncQuota.available) < 0) {
+                                                    // For unlimited pools, show a pulsing indicator instead of a percentage bar
+                                                    return '100%';
+                                                }
+                                                const total = ncQuota.used + Number(ncQuota.available);
+                                                return `${Math.min(100, total > 0 ? (ncQuota.used / total) * 100 : 0)}%`;
+                                            })(),
                                             height: '100%',
-                                            background: 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80)',
+                                            background: (ncQuota.available === 'unlimited' || Number(ncQuota.available) < 0)
+                                                ? 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80, var(--mtc-hunter-green))'
+                                                : 'linear-gradient(90deg, var(--mtc-hunter-green), #4ADE80)',
                                             borderRadius: '4px',
                                             transition: 'width 0.4s ease',
                                         }} />
@@ -4441,6 +4458,11 @@ export default function SettingsPage() {
                                                                 }}>
                                                                     {folder.name}
                                                                 </span>
+                                                                {folder.sizeFormatted && (
+                                                                    <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', flexShrink: 0, opacity: 0.75, marginLeft: 'auto' }}>
+                                                                        {folder.sizeFormatted}
+                                                                    </span>
+                                                                )}
                                                             </div>
                                                             <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                                                 <button
