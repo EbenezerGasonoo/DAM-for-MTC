@@ -18,9 +18,9 @@ async function main() {
     const assets = await prisma.asset.findMany({
         take: 5,
         orderBy: { createdAt: 'desc' },
-        select: { id: true, title: true, type: true, size: true, createdAt: true }
+        select: { id: true, title: true, type: true, size: true, createdAt: true, versions: true }
     });
-    console.log('Recent Assets in DB:', assets);
+    console.log('Recent Assets in DB with versions:', JSON.stringify(assets, null, 2));
 }
 
 main().catch(console.error).finally(() => prisma.$disconnect());

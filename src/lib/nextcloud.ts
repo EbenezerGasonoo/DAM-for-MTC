@@ -2,6 +2,20 @@ import { createClient, AuthType, WebDAVClient } from 'webdav';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from './prisma';
+import { XMLParser } from 'fast-xml-parser';
+
+// Ensure fast-xml-parser does not throw 'Entity expansion limit exceeded: 1002 > 1000'
+// when scanning Nextcloud directories with hundreds or thousands of files.
+if (XMLParser && XMLParser.prototype && (XMLParser.prototype as any).parse) {
+    const origParse = (XMLParser.prototype as any).parse;
+    (XMLParser.prototype as any).parse = function (xml: any, ...args: any[]) {
+        if (this.options && this.options.processEntities) {
+            this.options.processEntities.maxTotalExpansions = Infinity;
+            this.options.processEntities.maxExpandedLength = Infinity;
+        }
+        return origParse.call(this, xml, ...args);
+    };
+}
 
 // Format URL to proper Nextcloud WebDAV endpoint
 export function formatNextcloudWebdavUrl(rawUrl: string, _username?: string): string {

@@ -9,6 +9,7 @@ import { NextcloudFolderImporterModal } from '@/components/NextcloudFolderImport
 import { ActivityLog } from '@/components/ActivityLog';
 import { useAuth } from '@/lib/auth-context';
 import FavoriteButton from '@/components/FavoriteButton';
+import { getMediaUrl } from '@/lib/media-url';
 
 type Asset = {
     id: string;
@@ -452,7 +453,7 @@ export default function AssetsPage() {
                                                 return (
                                                     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
                                                         <img
-                                                            src={thumb!}
+                                                            src={getMediaUrl(thumb)}
                                                             alt={asset.title}
                                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                         />

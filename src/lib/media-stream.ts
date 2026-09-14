@@ -27,7 +27,15 @@ const MIME_MAP: Record<string, string> = {
 
 export async function handleMediaRequest(req: NextRequest, prefix: string, pathSegments: string[]) {
     try {
-        const relativePath = `/${prefix}/${pathSegments.join('/')}`;
+        const decodedSegments = pathSegments.map(seg => {
+            try {
+                return decodeURIComponent(seg);
+            } catch {
+                return seg;
+            }
+        });
+        const cleanPrefix = prefix ? prefix.replace(/^\/+|\/+$/g, '') : '';
+        const relativePath = cleanPrefix ? `/${cleanPrefix}/${decodedSegments.join('/')}` : `/${decodedSegments.join('/')}`;
         const ext = ('.' + relativePath.split('.').pop()?.toLowerCase()) || '';
         const contentType = MIME_MAP[ext] || 'application/octet-stream';
 

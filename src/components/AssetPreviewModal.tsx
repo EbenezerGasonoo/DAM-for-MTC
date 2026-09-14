@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { formatPlayerTimecode, parseFramerate, stepFrames } from '@/lib/timecode';
+import { getMediaUrl } from '@/lib/media-url';
 
 export interface AssetDetail {
     id: string;
@@ -245,27 +246,32 @@ export function AssetPreviewModal({
     const isAudioFile = (uri?: string | null) => Boolean(uri && /\.(mp3|wav|ogg|m4a|aac|flac|aiff|aif|wma)$/i.test(uri));
 
     // Video: if proxy is an actual video proxy, use it; otherwise stream original media directly from nextcloudUri
-    const videoSource = isVideoFile(currentVersionObj?.proxyUri)
+    const rawVideoSource = isVideoFile(currentVersionObj?.proxyUri)
         ? currentVersionObj!.proxyUri!
         : (currentVersionObj?.nextcloudUri || '');
+    const videoSource = getMediaUrl(rawVideoSource);
 
     // Poster: if proxy is an image thumbnail, use as video poster
-    const videoPoster = isImageFile(currentVersionObj?.proxyUri)
+    const rawVideoPoster = isImageFile(currentVersionObj?.proxyUri)
         ? currentVersionObj!.proxyUri!
         : undefined;
+    const videoPoster = rawVideoPoster ? getMediaUrl(rawVideoPoster) : undefined;
 
     // Audio: if proxy is an audio proxy, use it; otherwise stream original audio
-    const audioSource = isAudioFile(currentVersionObj?.proxyUri)
+    const rawAudioSource = isAudioFile(currentVersionObj?.proxyUri)
         ? currentVersionObj!.proxyUri!
         : (currentVersionObj?.nextcloudUri || '');
+    const audioSource = getMediaUrl(rawAudioSource);
 
     // Image: prefer fast web preview proxy if available, otherwise original
-    const imageSource = (isImageFile(currentVersionObj?.proxyUri) ? currentVersionObj?.proxyUri : currentVersionObj?.nextcloudUri) || '/placeholder.png';
+    const rawImageSource = isImageFile(currentVersionObj?.proxyUri) ? currentVersionObj?.proxyUri : currentVersionObj?.nextcloudUri;
+    const imageSource = rawImageSource ? getMediaUrl(rawImageSource) : '/placeholder.png';
 
     // General mediaSource fallback for other tabs
-    const mediaSource = isVideoFile(currentVersionObj?.proxyUri) || isAudioFile(currentVersionObj?.proxyUri) || isImageFile(currentVersionObj?.proxyUri)
+    const rawMediaSource = isVideoFile(currentVersionObj?.proxyUri) || isAudioFile(currentVersionObj?.proxyUri) || isImageFile(currentVersionObj?.proxyUri)
         ? currentVersionObj!.proxyUri!
         : (currentVersionObj?.nextcloudUri || '');
+    const mediaSource = getMediaUrl(rawMediaSource);
 
     const formattedSize = currentAsset ? (currentAsset.size / (1024 * 1024)).toFixed(1) + ' MB' : '0 MB';
 
