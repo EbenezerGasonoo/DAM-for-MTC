@@ -85,22 +85,90 @@ export async function extractImageMetadata(buffer: Buffer) {
             format: metadata.format,
             channels: metadata.channels,
         };
-    } catch (error) {
-        console.warn('Image metadata extraction failed (non-blocking):', error);
+    } catch {
+        // Sharp failed — attempt extracting embedded JPEG preview from RAW formats (Sony ARW, Canon CR2/CR3, Nikon NEF, etc.)
+        try {
+            const rawJpeg = extractEmbeddedRawJpeg(buffer);
+            if (rawJpeg) {
+                const metadata = await sharp(rawJpeg).metadata();
+                return {
+                    width: metadata.width,
+                    height: metadata.height,
+                    format: 'arw/raw',
+                    channels: metadata.channels,
+                };
+            }
+        } catch {}
         return null;
     }
 }
 
+/**
+ * Fast native extraction of embedded high-resolution JPEG previews from camera RAW formats
+ * (Sony ARW/SRF/SR2, Canon CR2/CR3, Nikon NEF/NRW, Adobe DNG, Fuji RAF, Olympus ORF, etc.)
+ */
+export function extractEmbeddedRawJpeg(buffer: Buffer): Buffer | null {
+    if (!buffer || buffer.length < 1024) return null;
+
+    let bestJpeg: Buffer | null = null;
+    let bestSize = 0;
+    let offset = 0;
+    const len = buffer.length;
+
+    // Scan for JPEG SOI marker: 0xFF, 0xD8, 0xFF
+    while (offset < len - 4) {
+        if (buffer[offset] === 0xff && buffer[offset + 1] === 0xd8 && buffer[offset + 2] === 0xff) {
+            const start = offset;
+            let end = -1;
+
+            // Search forward for matching JPEG EOI marker: 0xFF, 0xD9
+            for (let j = start + 4; j < len - 1; j++) {
+                if (buffer[j] === 0xff && buffer[j + 1] === 0xd9) {
+                    end = j + 2;
+                    const size = end - start;
+                    // Prefer larger preview image (> 10KB), picking the largest one found in the RAW file
+                    if (size > 10240 && size > bestSize) {
+                        bestJpeg = buffer.subarray(start, end);
+                        bestSize = size;
+                    }
+                    break;
+                }
+            }
+            offset = end > 0 ? end : offset + 3;
+        } else {
+            offset++;
+        }
+    }
+
+    return bestJpeg;
+}
+
 export async function generateImageThumbnail(buffer: Buffer, mimeType?: string): Promise<Buffer | null> {
-    // First try sharp — works for JPEG, PNG, WEBP, TIFF, HEIC (with libheif), AVIF, etc.
+    // 1. First try sharp — works for JPEG, PNG, WEBP, TIFF, HEIC (with libheif), AVIF, etc.
     try {
         const result = await sharp(buffer)
-            .resize({ width: 600, withoutEnlargement: true })
+            .resize({ width: 800, withoutEnlargement: true })
             .webp({ quality: 80 })
             .toBuffer();
         if (result && result.length > 0) return result;
     } catch {
         // Sharp failed — likely a proprietary RAW format (ARW, CR2, NEF, DNG, RAF, ORF, etc.)
+    }
+
+    // 2. High-speed embedded JPEG extraction for camera RAW files (Sony ARW, etc.)
+    try {
+        const rawJpeg = extractEmbeddedRawJpeg(buffer);
+        if (rawJpeg) {
+            const thumb = await sharp(rawJpeg)
+                .resize({ width: 800, withoutEnlargement: true })
+                .webp({ quality: 80 })
+                .toBuffer();
+            if (thumb && thumb.length > 0) {
+                return thumb;
+            }
+        }
+    } catch (rawErr) {
+        console.warn('[Media Processor] Embedded RAW JPEG thumbnail extraction failed:', rawErr);
     }
 
     // Fallback: use ffmpeg to extract a preview frame from the RAW image

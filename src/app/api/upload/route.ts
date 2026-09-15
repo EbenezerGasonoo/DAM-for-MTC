@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import path from 'path';
 import { uploadAsset, getActiveNextcloudConfig } from '@/lib/nextcloud';
 import { prisma } from '@/lib/prisma';
 import { getAuthFromCookies } from '@/lib/auth';
@@ -82,12 +83,38 @@ export async function POST(req: NextRequest) {
         await uploadAsset(nextcloudPath, buffer);
         console.log(`Media storage upload complete for ${nextcloudPath}`);
 
-        const mimeType = file.type || 'application/octet-stream';
+        let mimeType = file.type || '';
+        const fileExt = path.extname(cleanName).toLowerCase();
+
+        // Auto-detect MIME type by extension if browser provided empty or generic octet-stream
+        if (!mimeType || mimeType === 'application/octet-stream') {
+            const EXT_MIME_MAP: Record<string, string> = {
+                '.arw': 'image/x-sony-arw',
+                '.cr2': 'image/x-canon-cr2',
+                '.cr3': 'image/x-canon-cr3',
+                '.nef': 'image/x-nikon-nef',
+                '.dng': 'image/x-adobe-dng',
+                '.raw': 'image/x-raw',
+                '.raf': 'image/x-fuji-raf',
+                '.orf': 'image/x-olympus-orf',
+                '.rw2': 'image/x-panasonic-rw2',
+                '.pef': 'image/x-pentax-pef',
+                '.srf': 'image/x-sony-srf',
+                '.sr2': 'image/x-sony-sr2',
+                '.mxf': 'video/mxf',
+                '.r3d': 'video/x-red-r3d',
+                '.braw': 'video/x-braw',
+                '.mov': 'video/quicktime',
+                '.mp4': 'video/mp4',
+            };
+            mimeType = EXT_MIME_MAP[fileExt] || 'application/octet-stream';
+        }
+
         let type = 'document';
         let assetMetadata: Record<string, unknown> = {};
         let proxyUri: string | null = null;
 
-        if (mimeType.startsWith('image/')) {
+        if (mimeType.startsWith('image/') || /\.(arw|cr2|cr3|nef|dng|raw|raf|orf|rw2|pef|srf|sr2)$/i.test(cleanName)) {
             type = 'image';
             try {
                 assetMetadata = (await extractImageMetadata(buffer)) || {};
@@ -95,7 +122,7 @@ export async function POST(req: NextRequest) {
                 console.warn('Image metadata error (non-blocking):', err);
             }
             try {
-                const thumbBuffer = await generateImageThumbnail(buffer);
+                const thumbBuffer = await generateImageThumbnail(buffer, mimeType);
                 if (thumbBuffer) {
                     const thumbPath = `/mtc-dam-proxies/${timestamp}_thumb_${cleanName}.webp`;
                     await uploadAsset(thumbPath, thumbBuffer);

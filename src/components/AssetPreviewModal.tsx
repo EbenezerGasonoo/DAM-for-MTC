@@ -265,7 +265,11 @@ export function AssetPreviewModal({
 
     // Image: prefer fast web preview proxy if available, otherwise original
     const rawImageSource = isImageFile(currentVersionObj?.proxyUri) ? currentVersionObj?.proxyUri : currentVersionObj?.nextcloudUri;
-    const imageSource = rawImageSource ? getMediaUrl(rawImageSource) : '/placeholder.png';
+    const isRawCameraFile = Boolean(rawImageSource && /\.(arw|cr2|cr3|nef|dng|raw|raf|orf|rw2|pef|srf|sr2)$/i.test(rawImageSource));
+    const isWebImage = Boolean(rawImageSource && /\.(webp|jpg|jpeg|png|gif|svg)$/i.test(rawImageSource));
+    const imageSource = rawImageSource
+        ? (isRawCameraFile && !isWebImage ? `${getMediaUrl(rawImageSource)}?preview=1` : getMediaUrl(rawImageSource))
+        : '/placeholder.png';
 
     // General mediaSource fallback for other tabs
     const rawMediaSource = isVideoFile(currentVersionObj?.proxyUri) || isAudioFile(currentVersionObj?.proxyUri) || isImageFile(currentVersionObj?.proxyUri)

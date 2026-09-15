@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Readable } from 'stream';
 import { getAssetStat, getAssetReadStream, readAssetFile } from '@/lib/nextcloud';
+import { extractEmbeddedRawJpeg } from '@/lib/media-processor';
 
 const MIME_MAP: Record<string, string> = {
     '.mp4': 'video/mp4',
@@ -21,6 +22,11 @@ const MIME_MAP: Record<string, string> = {
     '.gif': 'image/gif',
     '.svg': 'image/svg+xml',
     '.arw': 'image/x-sony-arw',
+    '.cr2': 'image/x-canon-cr2',
+    '.cr3': 'image/x-canon-cr3',
+    '.nef': 'image/x-nikon-nef',
+    '.dng': 'image/x-adobe-dng',
+    '.raw': 'image/x-raw',
     '.pdf': 'application/pdf',
     '.zip': 'application/zip',
 };
@@ -38,6 +44,28 @@ export async function handleMediaRequest(req: NextRequest, prefix: string, pathS
         const relativePath = cleanPrefix ? `/${cleanPrefix}/${decodedSegments.join('/')}` : `/${decodedSegments.join('/')}`;
         const ext = ('.' + relativePath.split('.').pop()?.toLowerCase()) || '';
         const contentType = MIME_MAP[ext] || 'application/octet-stream';
+
+        // Fast on-the-fly embedded preview generation for camera RAW files (Sony ARW, etc.)
+        const isRawExt = /\.(arw|cr2|cr3|nef|dng|raw|raf|orf|rw2|pef|srf|sr2)$/i.test(ext);
+        const isPreviewReq = req.nextUrl.searchParams.get('preview') === '1' || req.nextUrl.searchParams.get('preview') === 'true';
+
+        if (isRawExt && isPreviewReq) {
+            const rawBuffer = await readAssetFile(relativePath);
+            if (rawBuffer) {
+                const embeddedJpeg = extractEmbeddedRawJpeg(rawBuffer);
+                if (embeddedJpeg) {
+                    return new NextResponse(embeddedJpeg as any, {
+                        status: 200,
+                        headers: {
+                            'Content-Type': 'image/jpeg',
+                            'Content-Length': embeddedJpeg.length.toString(),
+                            'Accept-Ranges': 'bytes',
+                            'Cache-Control': 'public, max-age=31536000, immutable',
+                        },
+                    });
+                }
+            }
+        }
 
         // 1. Check file stat (size and existence) without loading into RAM
         const stat = await getAssetStat(relativePath);
