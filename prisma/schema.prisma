@@ -28,6 +28,7 @@ model User {
   favorites        AssetFavorite[]
   notifications    Notification[]
   notificationPreference NotificationPreference?
+  reports          Report[]
 }
 
 model Project {
@@ -41,6 +42,7 @@ model Project {
   updatedAt   DateTime @updatedAt
 
   assets      Asset[]
+  reports     Report[]
 }
 
 model Asset {
@@ -72,6 +74,7 @@ model Asset {
   licenseInfo       UsageRight?        @relation("AssetUsage", fields: [licenseInfoId], references: [id])
   fieldValues       CustomFieldValue[]
   favorites         AssetFavorite[]
+  reports           Report[]
 }
 
 model AssetVersion {
@@ -380,3 +383,31 @@ model SystemSetting {
   value     String
   updatedAt DateTime @updatedAt
 }
+
+model Report {
+  id            String    @id @default(cuid())
+  title         String
+  description   String
+  type          String    // BUG, ASSET_ISSUE, PROJECT_STATUS, ACCESS_REQUEST, FEEDBACK
+  priority      String    @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+  status        String    @default("OPEN")   // OPEN, IN_REVIEW, RESOLVED, CLOSED
+  resolution    String?
+  resolvedAt    DateTime?
+  
+  submittedById String
+  submittedBy   User      @relation(fields: [submittedById], references: [id], onDelete: Cascade)
+  
+  assetId       String?
+  asset         Asset?    @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  projectId     String?
+  project       Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  
+  systemInfo    String?   // JSON string with browser/client diagnostic info
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([submittedById, createdAt])
+  @@index([status, priority])
+  @@index([type])
+}
+

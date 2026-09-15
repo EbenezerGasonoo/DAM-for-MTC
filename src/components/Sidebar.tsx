@@ -14,6 +14,7 @@ const navItems = [
     { name: 'Favorites', path: '/favorites', icon: '❤️' },
     { name: 'Workflow', path: '/workflow', icon: '◩' },
     { name: 'NLE Integrations', path: '/integrations', icon: '🎬' },
+    { name: 'Reports', path: '/reports', icon: '📋' },
     { name: 'Settings', path: '/settings', icon: '⛭' },
 ];
 
